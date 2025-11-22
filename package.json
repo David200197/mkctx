@@ -1,0 +1,42 @@
+{
+  "name": "mkctx",
+  "version": "1.0.0",
+  "description": "Tool for generating project context in Markdown",
+  "main": "main.go",
+  "scripts": {
+    "preinstall": "go build -o mkctx main.go",
+    "install": "node install.js",
+    "postinstall": "node cleanup.js"
+  },
+  "keywords": [
+    "context",
+    "markdown",
+    "documentation",
+    "ai",
+    "prompt"
+  ],
+  "author": "David200197",
+  "license": "MIT",
+  "bin": {
+    "mkctx": "./mkctx"
+  },
+  "files": [
+    "main.go",
+    "package.json",
+    "install.js",
+    "cleanup.js",
+    "README.md"
+  ],
+  "engines": {
+    "node": ">=14.0.0"
+  },
+  "os": [
+    "darwin",
+    "linux",
+    "win32"
+  ],
+  "cpu": [
+    "x64",
+    "arm64"
+  ]
+}
