@@ -3,16 +3,13 @@ const path = require("path");
 const { execSync } = require("child_process");
 
 function install() {
-  const binaryName = process.platform === "win32" ? "mkctx.exe" : "mkctx";
-  const sourceBinary = process.platform === "win32" ? "mkctx.exe" : "mkctx";
+  const isWindows = process.platform === "win32";
+  const binaryName = isWindows ? "mkctx.exe" : "mkctx";
+  const sourceBinary = isWindows ? "mkctx.exe" : "mkctx";
   const sourcePath = path.join(__dirname, sourceBinary);
 
   // Rename the binary if necessary (from mkctx to mkctx.exe on Windows)
-  if (
-    process.platform === "win32" &&
-    fs.existsSync("mkctx") &&
-    !fs.existsSync("mkctx.exe")
-  ) {
+  if (isWindows && fs.existsSync("mkctx") && !fs.existsSync("mkctx.exe")) {
     fs.renameSync("mkctx", "mkctx.exe");
     console.log("✅ Binary renamed for Windows: mkctx -> mkctx.exe");
   }
@@ -32,23 +29,45 @@ function install() {
 
   try {
     // Method 1: Use npm to get the global bin directory
-    const npmGlobalBin = execSync("npm bin -g").toString().trim();
+    let npmGlobalBin;
+    try {
+      npmGlobalBin = execSync("npm bin -g").toString().trim();
+    } catch (error) {
+      // Alternative method to get global bin directory
+      npmGlobalBin = execSync("npm root -g").toString().trim();
+      npmGlobalBin = path.join(npmGlobalBin, ".bin");
+    }
+
     const installPath = path.join(npmGlobalBin, binaryName);
 
     console.log(`📦 Installing mkctx at: ${installPath}`);
+
+    // Ensure the directory exists
+    if (!fs.existsSync(npmGlobalBin)) {
+      fs.mkdirSync(npmGlobalBin, { recursive: true });
+    }
 
     // Copy the binary
     fs.copyFileSync(sourcePath, installPath);
 
     // Set execution permissions (Unix only)
-    if (process.platform !== "win32") {
+    if (!isWindows) {
       fs.chmodSync(installPath, 0o755);
     }
 
     console.log("✅ mkctx installed successfully via npm");
+
+    // Create a .cmd wrapper for Windows
+    if (isWindows) {
+      createWindowsWrapper(npmGlobalBin);
+    }
+
     return;
   } catch (error) {
-    console.log("⚠️  npm method failed, trying alternative method...");
+    console.log(
+      "⚠️  npm method failed, trying alternative method...",
+      error.message
+    );
   }
 
   // Alternative method: Search common PATH directories
@@ -63,8 +82,13 @@ function install() {
         fs.copyFileSync(sourcePath, altInstallPath);
 
         // Set execution permissions (Unix only)
-        if (process.platform !== "win32") {
+        if (!isWindows) {
           fs.chmodSync(altInstallPath, 0o755);
+        }
+
+        // Create Windows wrapper if needed
+        if (isWindows) {
+          createWindowsWrapper(altPath);
         }
 
         console.log(`✅ mkctx installed at: ${altInstallPath}`);
@@ -72,7 +96,6 @@ function install() {
       }
     } catch (e) {
       console.log(`   ❌ Installation failed at ${altPath}: ${e.message}`);
-      // Continue to next path
     }
   }
 
@@ -90,11 +113,21 @@ function install() {
   pathDirs.forEach((dir) => console.log("   -", dir));
 }
 
+function createWindowsWrapper(installDir) {
+  const wrapperPath = path.join(installDir, "mkctx.cmd");
+  const wrapperContent = `@echo off
+"${path.join(installDir, "mkctx.exe")}" %*
+`;
+  fs.writeFileSync(wrapperPath, wrapperContent);
+  console.log(`✅ Created Windows wrapper: ${wrapperPath}`);
+}
+
 function getAlternativePaths() {
   const paths = [];
+  const isWindows = process.platform === "win32";
 
-  if (process.platform === "win32") {
-    // Windows
+  if (isWindows) {
+    // Windows paths
     if (process.env.APPDATA) {
       paths.push(path.join(process.env.APPDATA, "npm"));
     }
@@ -106,11 +139,18 @@ function getAlternativePaths() {
     if (process.env.ProgramFiles) {
       paths.push(path.join(process.env.ProgramFiles, "nodejs"));
     }
-    // Add common Windows PATH directories
+    // Common Node.js installation paths
     paths.push("C:\\Program Files\\nodejs");
     paths.push("C:\\Program Files (x86)\\nodejs");
+
+    // User's local bin
+    if (process.env.USERPROFILE) {
+      paths.push(
+        path.join(process.env.USERPROFILE, "AppData", "Roaming", "npm")
+      );
+    }
   } else {
-    // Unix/Linux/macOS
+    // Unix/Linux/macOS paths
     paths.push("/usr/local/bin");
     paths.push("/usr/bin");
     paths.push("/opt/local/bin");
@@ -130,5 +170,16 @@ function getAlternativePaths() {
 
   return paths.filter((p) => p !== null && p !== undefined);
 }
+
+// Handle uncaught errors
+process.on("uncaughtException", (error) => {
+  console.log("❌ Installation failed:", error.message);
+  process.exit(1);
+});
+
+process.on("unhandledRejection", (reason, promise) => {
+  console.log("❌ Unhandled rejection at:", promise, "reason:", reason);
+  process.exit(1);
+});
 
 install();

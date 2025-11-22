@@ -2,7 +2,7 @@ const fs = require("fs");
 const path = require("path");
 
 function cleanup() {
-  const filesToRemove = ["mkctx", "mkctx.exe"];
+  const filesToRemove = ["mkctx", "mkctx.exe", "mkctx.cmd"];
   let removedCount = 0;
 
   filesToRemove.forEach((file) => {
