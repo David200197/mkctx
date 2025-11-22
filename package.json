@@ -1,6 +1,6 @@
 {
   "name": "mkctx",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "description": "Tool to generate project context in markdown for AI assistants",
   "main": "index.js",
   "scripts": {
