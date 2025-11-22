@@ -3,32 +3,39 @@ const path = require("path");
 const { execSync } = require("child_process");
 
 function install() {
-  const isWindows = process.platform === "win32";
-  const binaryName = isWindows ? "mkctx.exe" : "mkctx";
-  const sourceBinary = isWindows ? "mkctx.exe" : "mkctx";
-  const sourcePath = path.join(__dirname, sourceBinary);
+  const platform = process.platform;
+  const arch = process.arch;
+  const isWindows = platform === "win32";
 
-  // Rename the binary if necessary (from mkctx to mkctx.exe on Windows)
-  if (isWindows && fs.existsSync("mkctx") && !fs.existsSync("mkctx.exe")) {
-    fs.renameSync("mkctx", "mkctx.exe");
-    console.log("✅ Binary renamed for Windows: mkctx -> mkctx.exe");
+  const binaryName = isWindows ? "mkctx.exe" : "mkctx";
+
+  // Determinar la ruta del binario precompilado
+  let binaryPath;
+
+  if (platform === "win32") {
+    binaryPath = path.join(__dirname, "bin", "win32", arch, "mkctx.exe");
+  } else if (platform === "darwin") {
+    binaryPath = path.join(__dirname, "bin", "darwin", arch, "mkctx");
+  } else if (platform === "linux") {
+    binaryPath = path.join(__dirname, "bin", "linux", arch, "mkctx");
+  } else {
+    console.log("❌ Unsupported platform:", platform);
+    return;
   }
 
-  // Check if the binary exists
-  if (!fs.existsSync(sourcePath)) {
-    console.log("❌ Compiled binary not found at:", sourcePath);
-    console.log("📋 Files in directory:");
-    try {
-      const files = fs.readdirSync(__dirname);
-      files.forEach((file) => console.log("   -", file));
-    } catch (e) {
-      console.log("   Could not read directory");
-    }
+  // Verificar que el binario precompilado existe
+  if (!fs.existsSync(binaryPath)) {
+    console.log(
+      "❌ Precompiled binary not found for your platform:",
+      binaryPath
+    );
+    console.log("📋 Available platforms: win32, darwin, linux");
+    console.log("📋 Available architectures: x64, arm64");
     return;
   }
 
   try {
-    // Method 1: Use npm to get the global bin directory
+    // Método 1: Usar npm para obtener el directorio global de bins
     let npmGlobalBin;
     try {
       npmGlobalBin = execSync("npm bin -g").toString().trim();
@@ -47,19 +54,19 @@ function install() {
       fs.mkdirSync(npmGlobalBin, { recursive: true });
     }
 
-    // Copy the binary
-    fs.copyFileSync(sourcePath, installPath);
+    // Copy the precompiled binary
+    fs.copyFileSync(binaryPath, installPath);
 
     // Set execution permissions (Unix only)
     if (!isWindows) {
       fs.chmodSync(installPath, 0o755);
     }
 
-    console.log("✅ mkctx installed successfully via npm");
+    console.log("✅ mkctx installed successfully");
 
     // Create a .cmd wrapper for Windows
     if (isWindows) {
-      createWindowsWrapper(npmGlobalBin);
+      createWindowsWrapper(npmGlobalBin, installPath);
     }
 
     return;
@@ -79,7 +86,7 @@ function install() {
         const altInstallPath = path.join(altPath, binaryName);
         console.log(`🔄 Trying to install at: ${altInstallPath}`);
 
-        fs.copyFileSync(sourcePath, altInstallPath);
+        fs.copyFileSync(binaryPath, altInstallPath);
 
         // Set execution permissions (Unix only)
         if (!isWindows) {
@@ -88,7 +95,7 @@ function install() {
 
         // Create Windows wrapper if needed
         if (isWindows) {
-          createWindowsWrapper(altPath);
+          createWindowsWrapper(altPath, altInstallPath);
         }
 
         console.log(`✅ mkctx installed at: ${altInstallPath}`);
@@ -99,24 +106,15 @@ function install() {
     }
   }
 
-  // If we get here, all methods failed
   console.log("❌ Could not install automatically");
   console.log("📋 Manual installation required:");
-  console.log(`   1. Copy the file '${sourcePath}' to a folder in your PATH`);
-  console.log(`   2. Make sure the file has execution permissions`);
-
-  // Show current PATH to help the user
-  console.log("\n📁 Your PATH includes these folders:");
-  const pathDirs = process.env.PATH
-    ? process.env.PATH.split(path.delimiter)
-    : [];
-  pathDirs.forEach((dir) => console.log("   -", dir));
+  console.log(`   1. Copy the file '${binaryPath}' to a folder in your PATH`);
 }
 
-function createWindowsWrapper(installDir) {
+function createWindowsWrapper(installDir, binaryPath) {
   const wrapperPath = path.join(installDir, "mkctx.cmd");
   const wrapperContent = `@echo off
-"${path.join(installDir, "mkctx.exe")}" %*
+"${binaryPath}" %*
 `;
   fs.writeFileSync(wrapperPath, wrapperContent);
   console.log(`✅ Created Windows wrapper: ${wrapperPath}`);
@@ -127,7 +125,6 @@ function getAlternativePaths() {
   const isWindows = process.platform === "win32";
 
   if (isWindows) {
-    // Windows paths
     if (process.env.APPDATA) {
       paths.push(path.join(process.env.APPDATA, "npm"));
     }
@@ -139,29 +136,24 @@ function getAlternativePaths() {
     if (process.env.ProgramFiles) {
       paths.push(path.join(process.env.ProgramFiles, "nodejs"));
     }
-    // Common Node.js installation paths
     paths.push("C:\\Program Files\\nodejs");
     paths.push("C:\\Program Files (x86)\\nodejs");
 
-    // User's local bin
     if (process.env.USERPROFILE) {
       paths.push(
         path.join(process.env.USERPROFILE, "AppData", "Roaming", "npm")
       );
     }
   } else {
-    // Unix/Linux/macOS paths
     paths.push("/usr/local/bin");
     paths.push("/usr/bin");
     paths.push("/opt/local/bin");
 
-    // User bin directory
     if (process.env.HOME) {
       paths.push(path.join(process.env.HOME, "bin"));
       paths.push(path.join(process.env.HOME, ".local", "bin"));
     }
 
-    // Common directories on macOS
     if (process.platform === "darwin") {
       paths.push("/opt/homebrew/bin");
       paths.push("/usr/local/opt/bin");
@@ -170,16 +162,5 @@ function getAlternativePaths() {
 
   return paths.filter((p) => p !== null && p !== undefined);
 }
-
-// Handle uncaught errors
-process.on("uncaughtException", (error) => {
-  console.log("❌ Installation failed:", error.message);
-  process.exit(1);
-});
-
-process.on("unhandledRejection", (reason, promise) => {
-  console.log("❌ Unhandled rejection at:", promise, "reason:", reason);
-  process.exit(1);
-});
 
 install();

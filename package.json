@@ -2,11 +2,13 @@
   "name": "mkctx",
   "version": "1.0.2",
   "description": "Tool to generate project context in markdown for AI assistants",
-  "main": "main.go",
+  "main": "index.js",
   "scripts": {
-    "preinstall": "go build -o mkctx main.go",
-    "install": "node install.js",
-    "postinstall": "node cleanup.js"
+    "build": "node -e \"console.log('Use build.ps1 on Windows or build.sh on Unix')\"",
+    "build:windows": "powershell -ExecutionPolicy Bypass -File build.ps1",
+    "build:unix": "chmod +x build.sh && ./build.sh",
+    "prepublishOnly": "npm run build:windows || npm run build:unix || echo 'Build failed - manual build required'",
+    "install": "node install.js"
   },
   "keywords": [
     "context",
@@ -14,20 +16,18 @@
     "documentation",
     "ai",
     "prompt",
-    "code-context",
-    "development",
-    "tool"
+    "code-context"
   ],
-  "author": "Your Name <your.email@example.com>",
+  "author": "Your Name",
   "license": "MIT",
   "bin": {
-    "mkctx": "./mkctx.exe"
+    "mkctx": "./bin/mkctx.exe"
   },
   "files": [
-    "main.go",
-    "package.json",
+    "bin/",
     "install.js",
-    "cleanup.js",
+    "build.ps1",
+    "build.sh",
     "README.md"
   ],
   "engines": {
@@ -41,9 +41,5 @@
   "cpu": [
     "x64",
     "arm64"
-  ],
-  "repository": {
-    "type": "git",
-    "url": "https://github.com/your-username/mkctx.git"
-  }
+  ]
 }
