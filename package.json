@@ -1,7 +1,7 @@
 {
   "name": "mkctx",
-  "version": "1.0.0",
-  "description": "Tool for generating project context in Markdown",
+  "version": "1.0.1",
+  "description": "Tool to generate project context in markdown for AI assistants",
   "main": "main.go",
   "scripts": {
     "preinstall": "go build -o mkctx main.go",
@@ -13,9 +13,12 @@
     "markdown",
     "documentation",
     "ai",
-    "prompt"
+    "prompt",
+    "code-context",
+    "development",
+    "tool"
   ],
-  "author": "David200197",
+  "author": "Tu Nombre <tu.email@example.com>",
   "license": "MIT",
   "bin": {
     "mkctx": "./mkctx"
@@ -28,7 +31,8 @@
     "README.md"
   ],
   "engines": {
-    "node": ">=14.0.0"
+    "node": ">=14.0.0",
+    "go": ">=1.16"
   },
   "os": [
     "darwin",
@@ -38,5 +42,13 @@
   "cpu": [
     "x64",
     "arm64"
-  ]
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/David200197/mkctx.git"
+  },
+  "homepage": "https://github.com/David200197/mkctx#readme",
+  "bugs": {
+    "url": "https://github.com/David200197/mkctx/issues"
+  }
 }
