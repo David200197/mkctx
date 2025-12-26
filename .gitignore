@@ -1,1 +1,24 @@
-bin
+# Dependencies
+node_modules/
+
+# Output
+mkctx/
+context.md
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Logs
+*.log
+npm-debug.log*
+
+# Test
+coverage/
+.nyc_output/

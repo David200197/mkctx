@@ -1,34 +1,50 @@
 {
   "name": "mkctx",
-  "version": "1.0.3",
-  "description": "Tool to generate project context in markdown for AI assistants",
-  "main": "index.js",
+  "version": "2.0.0",
+  "description": "Generate markdown context files from your project code for AI assistants",
+  "main": "bin/mkctx.js",
+  "bin": {
+    "mkctx": "./bin/mkctx.js"
+  },
   "scripts": {
-    "build": "node -e \"console.log('Use build.ps1 on Windows or build.sh on Unix')\"",
-    "build:windows": "powershell -ExecutionPolicy Bypass -File build.ps1",
-    "build:unix": "chmod +x build.sh && ./build.sh",
-    "prepublishOnly": "npm run build:windows || npm run build:unix || echo 'Build failed - manual build required'",
-    "install": "node install.js"
+    "start": "node bin/mkctx.js",
+    "config": "node bin/mkctx.js config",
+    "test": "node bin/mkctx.js --help",
+    "prepublishOnly": "node bin/mkctx.js --version",
+    "release:patch": "npm version patch && npm publish",
+    "release:minor": "npm version minor && npm publish",
+    "release:major": "npm version major && npm publish",
+    "deploy": "npm publish",
+    "deploy:dry": "npm publish --dry-run"
   },
   "keywords": [
     "context",
     "markdown",
     "documentation",
     "ai",
+    "llm",
+    "chatgpt",
+    "claude",
     "prompt",
-    "code-context"
+    "code-context",
+    "code-documentation",
+    "project-context"
   ],
-  "author": "Your Name",
+  "author": "Your Name <your.email@example.com>",
   "license": "MIT",
-  "bin": {
-    "mkctx": "./bin/mkctx.exe"
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/yourusername/mkctx.git"
   },
+  "bugs": {
+    "url": "https://github.com/yourusername/mkctx/issues"
+  },
+  "homepage": "https://github.com/yourusername/mkctx#readme",
   "files": [
     "bin/",
-    "install.js",
-    "build.ps1",
-    "build.sh",
-    "README.md"
+    "README.md",
+    "LICENSE",
+    "favicon.svg"
   ],
   "engines": {
     "node": ">=14.0.0"
@@ -37,9 +53,5 @@
     "darwin",
     "linux",
     "win32"
-  ],
-  "cpu": [
-    "x64",
-    "arm64"
   ]
 }

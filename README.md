@@ -1,14 +1,28 @@
-# mkctx - Make Context
+<p align="center">
+  <img src="./favicon.svg" alt="mkctx logo" width="120" height="140" style="background: #fff; padding: 10px; border-radius: 15px" >
+</p>
 
-A powerful command-line tool that generates comprehensive markdown context files from your project code, perfect for use with AI assistants and documentation.
+<h1 align="center">mkctx - Make Context</h1>
+
+<p align="center">
+  A powerful command-line tool that generates comprehensive markdown context files from your project code, perfect for use with AI assistants like ChatGPT, Claude, and others.
+</p>
+
+<p align="center">
+  <a href="https://www.npmjs.com/package/mkctx"><img src="https://img.shields.io/npm/v/mkctx.svg" alt="npm version"></a>
+  <a href="https://www.npmjs.com/package/mkctx"><img src="https://img.shields.io/npm/dm/mkctx.svg" alt="npm downloads"></a>
+  <a href="https://github.com/yourusername/mkctx/blob/main/LICENSE"><img src="https://img.shields.io/npm/l/mkctx.svg" alt="license"></a>
+</p>
 
 ## Features
 
 - 🚀 **Multi-platform** - Works on Windows, macOS, and Linux
-- 📝 **Smart Ignoring** - Respects gitignore patterns and custom ignore rules
+- 📝 **Smart Ignoring** - Respects custom ignore patterns and common system files
 - ⚙️ **Configurable** - Customize source directories, output locations, and comments
 - 🎯 **AI-Friendly** - Outputs code in markdown format ideal for AI prompts
-- 🔧 **Easy Installation** - Install globally via npm
+- 🔧 **Zero Dependencies** - Pure Node.js, no external dependencies
+- 🎨 **Syntax Highlighting** - Proper language detection for code blocks
+- 🔄 **Dynamic Mode** - Interactive path selection when needed
 
 ## Installation
 
@@ -28,6 +42,11 @@ mkctx
 mkctx config
 ```
 
+### Show help
+```bash
+mkctx help
+```
+
 ## Usage
 
 ### Basic Usage
@@ -36,6 +55,15 @@ Run `mkctx` in your project root to generate a `context.md` file containing all 
 ```bash
 cd your-project/
 mkctx
+```
+
+### Dynamic Mode
+If no configuration file exists, or if `dynamic: true` is set, mkctx will prompt you for the source path:
+
+```
+🔍 Dynamic mode enabled
+   Current directory: /home/user/my-project
+   Enter path (or press Enter for './src'): app/components
 ```
 
 ### Configuration
@@ -56,20 +84,39 @@ The `mkctx.config.json` file supports the following options:
 ```json
 {
   "src": "./src",
-  "ignore": "*.log, temp/, node_modules/, .git/",
+  "ignore": "*.log, temp/, node_modules/, .git/, dist/, build/",
   "output": "./mkctx",
   "first_comment": "/* Project Context */",
-  "last_comment": "/* End of Context */"
+  "last_comment": "/* End of Context */",
+  "dynamic": false
 }
 ```
 
 | Option | Description | Default |
 |--------|-------------|---------|
-| `src` | Source directory to scan | `"."` (current directory) |
+| `src` | Source directory to scan | `"./src"` |
 | `ignore` | Comma-separated patterns to ignore | `"*.log, temp/, node_modules/, .git/"` |
-| `output` | Output directory for context file | `"."` (current directory) |
+| `output` | Output directory for context file | `"./mkctx"` |
 | `first_comment` | Comment added at the beginning of the context | `"/* Project Context */"` |
 | `last_comment` | Comment added at the end of the context | `"/* End of Context */"` |
+| `dynamic` | Prompt for path on each run | `false` |
+
+## Ignore Patterns
+
+mkctx supports several pattern types:
+
+- **Wildcards**: `*.log`, `*.test.js`, `*.spec.ts`
+- **Directories**: `temp/`, `dist/`, `build/`
+- **Exact match**: `config.local.json`
+
+### Default System Ignores
+
+These are always ignored automatically:
+- `.git`, `.svn`, `.hg`
+- `node_modules`
+- `.DS_Store`, `Thumbs.db`
+- `__pycache__`, `.pytest_cache`
+- `.vscode`, `.idea`
 
 ## Output Format
 
@@ -79,13 +126,15 @@ The generated `context.md` file contains your project code in this format:
 /* Project Context */
 
 ```javascript
-// src/main.js
+// src/index.js
 console.log("Hello World!");
 ```
 
-```css
-// styles/main.css
-body { margin: 0; }
+```typescript
+// src/utils/helpers.ts
+export function helper() {
+  return true;
+}
 ```
 
 /* End of Context */
@@ -97,7 +146,7 @@ body { margin: 0; }
 ```json
 {
   "src": "./src",
-  "ignore": "*.test.js, __tests__/, dist/",
+  "ignore": "*.test.js, __tests__/, *.spec.ts",
   "output": "./docs",
   "first_comment": "/* My App Codebase */"
 }
@@ -107,30 +156,36 @@ body { margin: 0; }
 ```json
 {
   "src": ".",
-  "ignore": "node_modules/, .git/, *.md, package-lock.json",
-  "first_comment": "## Project Overview\n\nThis is the complete codebase for my application.",
-  "last_comment": "## End of Codebase\n\nThis context file was generated using mkctx."
+  "ignore": "node_modules/, .git/, *.md, package-lock.json, yarn.lock",
+  "first_comment": "## Project Overview\n\nThis is the complete codebase.",
+  "last_comment": "## End of Codebase"
 }
 ```
 
-## Platform Support
+### Always prompt for path
+```json
+{
+  "src": "./src",
+  "dynamic": true
+}
+```
 
-- ✅ **Windows** - Full support with automatic .exe handling
-- ✅ **macOS** - Native support with proper permissions
-- ✅ **Linux** - Complete compatibility
+## Supported Languages
 
-## Requirements
+mkctx automatically detects and applies proper syntax highlighting for:
 
-- **Go** 1.16+ (for building from source)
-- **Node.js** 14.0+ (for npm installation)
-- **npm** or **yarn** (for package management)
-
-## How It Works
-
-1. **Scan**: Recursively scans your source directory
-2. **Filter**: Applies ignore patterns from config and .gitignore
-3. **Format**: Converts each file to markdown code blocks with file paths
-4. **Output**: Generates a comprehensive context.md file
+- **JavaScript/TypeScript**: `.js`, `.ts`, `.jsx`, `.tsx`, `.mjs`, `.cjs`
+- **Python**: `.py`
+- **Go**: `.go`
+- **Rust**: `.rs`
+- **Java/Kotlin**: `.java`, `.kt`
+- **C/C++**: `.c`, `.cpp`, `.h`, `.hpp`
+- **PHP**: `.php`
+- **Ruby**: `.rb`
+- **Shell**: `.sh`, `.bash`, `.zsh`, `.ps1`
+- **Web**: `.html`, `.css`, `.scss`, `.vue`, `.svelte`
+- **Data**: `.json`, `.yaml`, `.yml`, `.xml`, `.toml`
+- **And many more...**
 
 ## Use Cases
 
@@ -140,37 +195,48 @@ body { margin: 0; }
 - **Onboarding** - Help new developers understand the project structure
 - **Backup** - Generate searchable archives of your code
 
+## Platform Support
+
+- ✅ **Windows** - Full support
+- ✅ **macOS** - Full support
+- ✅ **Linux** - Full support
+
+## Requirements
+
+- **Node.js** 14.0+ 
+- **npm** (for installation)
+
 ## Troubleshooting
 
-### Installation Issues
-If installation fails, try manual installation:
-1. Build the binary: `go build -o mkctx main.go`
-2. Copy to a directory in your PATH
-3. Ensure execution permissions: `chmod +x mkctx`
+### Command not found
+If `mkctx` is not found after installation:
+1. Make sure npm global bin is in your PATH
+2. Try: `npm bin -g` to see where global packages are installed
+3. Restart your terminal
 
-### Permission Errors
-On Unix systems, you might need to use `sudo`:
+### Permission errors (Unix)
 ```bash
 sudo npm install -g mkctx
 ```
 
-### Binary Not Found
-If `mkctx` command is not found after installation:
-1. Check if the installation directory is in your PATH
-2. Restart your terminal
-3. Try reinstalling: `npm uninstall -g mkctx && npm install -g mkctx`
+Or fix npm permissions: https://docs.npmjs.com/resolving-eacces-permissions-errors
+
+## Changelog
+
+### v2.0.0
+- Complete rewrite in Node.js (no more Go binaries)
+- Added dynamic mode for interactive path selection
+- Improved language detection
+- Better ignore pattern handling
+- Zero external dependencies
+
+### v1.x
+- Initial Go-based implementation
 
 ## Contributing
 
-Contributions are welcome! Please feel free to submit pull requests or open issues for bugs and feature requests.
+Contributions are welcome! Please feel free to submit pull requests or open issues.
 
 ## License
 
-MIT License - see LICENSE file for details.
-
-## Support
-
-If you encounter any problems or have questions:
-1. Check this README for solutions
-2. Open an issue on GitHub
-3. Check the generated configuration for guidance
+MIT License - see [LICENSE](LICENSE) file for details.
