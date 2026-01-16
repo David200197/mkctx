@@ -1,6 +1,6 @@
 {
   "name": "mkctx",
-  "version": "2.0.0",
+  "version": "2.0.1",
   "description": "Generate markdown context files from your project code for AI assistants",
   "main": "bin/mkctx.js",
   "bin": {
