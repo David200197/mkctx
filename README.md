@@ -1,8 +1,12 @@
-<p align="center">
-  <img src="./favicon.svg" alt="mkctx logo" width="120" height="140" style="background: #fff; padding: 10px; border-radius: 15px" >
-</p>
-
 <h1 align="center">mkctx - Make Context</h1>
+
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="./black-favicon.svg">
+    <source media="(prefers-color-scheme: light)" srcset="./white-favicon.svg">
+    <img src="./black-favicon.svg" alt="mkcommit logo" width="150">
+  </picture>
+</p>
 
 <p align="center">
   A powerful command-line tool that generates comprehensive markdown context files from your project code, perfect for use with AI assistants like ChatGPT, Claude, and others.
@@ -33,16 +37,19 @@ npm install -g mkctx
 ## Quick Start
 
 ### Generate context for your project
+
 ```bash
 mkctx
 ```
 
 ### Create configuration file
+
 ```bash
 mkctx config
 ```
 
 ### Show help
+
 ```bash
 mkctx help
 ```
@@ -50,6 +57,7 @@ mkctx help
 ## Usage
 
 ### Basic Usage
+
 Run `mkctx` in your project root to generate a `context.md` file containing all your project code:
 
 ```bash
@@ -58,6 +66,7 @@ mkctx
 ```
 
 ### Dynamic Mode
+
 If no configuration file exists, or if `dynamic: true` is set, mkctx will prompt you for the source path:
 
 ```
@@ -67,6 +76,7 @@ If no configuration file exists, or if `dynamic: true` is set, mkctx will prompt
 ```
 
 ### Configuration
+
 Create a configuration file to customize behavior:
 
 ```bash
@@ -74,6 +84,7 @@ mkctx config
 ```
 
 This creates:
+
 - `mkctx.config.json` - Configuration file
 - `mkctx/` directory - Output folder (added to .gitignore)
 
@@ -92,14 +103,14 @@ The `mkctx.config.json` file supports the following options:
 }
 ```
 
-| Option | Description | Default |
-|--------|-------------|---------|
-| `src` | Source directory to scan | `"./src"` |
-| `ignore` | Comma-separated patterns to ignore | `"*.log, temp/, node_modules/, .git/"` |
-| `output` | Output directory for context file | `"./mkctx"` |
-| `first_comment` | Comment added at the beginning of the context | `"/* Project Context */"` |
-| `last_comment` | Comment added at the end of the context | `"/* End of Context */"` |
-| `dynamic` | Prompt for path on each run | `false` |
+| Option          | Description                                   | Default                                |
+| --------------- | --------------------------------------------- | -------------------------------------- |
+| `src`           | Source directory to scan                      | `"./src"`                              |
+| `ignore`        | Comma-separated patterns to ignore            | `"*.log, temp/, node_modules/, .git/"` |
+| `output`        | Output directory for context file             | `"./mkctx"`                            |
+| `first_comment` | Comment added at the beginning of the context | `"/* Project Context */"`              |
+| `last_comment`  | Comment added at the end of the context       | `"/* End of Context */"`               |
+| `dynamic`       | Prompt for path on each run                   | `false`                                |
 
 ## Ignore Patterns
 
@@ -112,6 +123,7 @@ mkctx supports several pattern types:
 ### Default System Ignores
 
 These are always ignored automatically:
+
 - `.git`, `.svn`, `.hg`
 - `node_modules`
 - `.DS_Store`, `Thumbs.db`
@@ -123,7 +135,7 @@ These are always ignored automatically:
 The generated `context.md` file contains your project code in this format:
 
 ````markdown
-/* Project Context */
+/_ Project Context _/
 
 ```javascript
 // src/index.js
@@ -137,12 +149,13 @@ export function helper() {
 }
 ```
 
-/* End of Context */
+/_ End of Context _/
 ````
 
 ## Examples
 
 ### Include only specific directories
+
 ```json
 {
   "src": "./src",
@@ -153,6 +166,7 @@ export function helper() {
 ```
 
 ### Generate context for documentation
+
 ```json
 {
   "src": ".",
@@ -163,6 +177,7 @@ export function helper() {
 ```
 
 ### Always prompt for path
+
 ```json
 {
   "src": "./src",
@@ -203,18 +218,21 @@ mkctx automatically detects and applies proper syntax highlighting for:
 
 ## Requirements
 
-- **Node.js** 14.0+ 
+- **Node.js** 14.0+
 - **npm** (for installation)
 
 ## Troubleshooting
 
 ### Command not found
+
 If `mkctx` is not found after installation:
+
 1. Make sure npm global bin is in your PATH
 2. Try: `npm bin -g` to see where global packages are installed
 3. Restart your terminal
 
 ### Permission errors (Unix)
+
 ```bash
 sudo npm install -g mkctx
 ```
@@ -224,6 +242,7 @@ Or fix npm permissions: https://docs.npmjs.com/resolving-eacces-permissions-erro
 ## Changelog
 
 ### v2.0.0
+
 - Complete rewrite in Node.js (no more Go binaries)
 - Added dynamic mode for interactive path selection
 - Improved language detection
@@ -231,6 +250,7 @@ Or fix npm permissions: https://docs.npmjs.com/resolving-eacces-permissions-erro
 - Zero external dependencies
 
 ### v1.x
+
 - Initial Go-based implementation
 
 ## Contributing
