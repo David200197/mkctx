@@ -7,13 +7,13 @@ const readline = require('readline');
 const CONFIG_FILE = 'mkctx.config.json';
 
 const defaultConfig = {
-  src: './src',
-  ignore: '*.log, temp/, node_modules/, .git/, dist/, build/',
-  output: './mkctx',
-  first_comment: '/* Project Context */',
-  last_comment: '/* End of Context */',
-  dynamic: false
-};
+  "src": ".",
+  "ignore": "**/.titan/, mkctx/, node_modules/, .git/, dist/, build/, target/, .next/, out/, .cache, package-lock.json, *.log, temp/, tmp/, coverage/, .nyc_output, .env, .env.local, .env.development.local, .env.test.local, .env.production.local, npm-debug.log*, yarn-debug.log*, yarn-error.log*, .npm, .yarn-integrity, .parcel-cache, .vuepress/dist, .svelte-kit, **/*.rs.bk, .idea/, .vscode/, .DS_Store, Thumbs.db, *.swp, *.swo, .~lock.*, Cargo.lock, .cargo/registry/, .cargo/git/, .rustup/, *.pdb, *.dSYM/, *.so, *.dll, *.dylib, *.exe, *.lib, *.a, *.o, *.rlib, *.d, *.tmp, *.bak, *.orig, *.rej, *.pyc, *.pyo, *.class, *.jar, *.war, *.ear, *.zip, *.tar.gz, *.rar, *.7z, *.iso, *.img, *.dmg, *.pdf, *.doc, *.docx, *.xls, *.xlsx, *.ppt, *.pptx",
+  "output": "./mkctx",
+  "first_comment": "/* Project Context */",
+  "last_comment": "/* End of Context */",
+  "dynamic": false
+}
 
 // Mapeo de extensiones a lenguajes para mejor resaltado de sintaxis
 const langMap = {
@@ -315,9 +315,9 @@ function shouldIgnore(fullPath, name, relativePath, patterns) {
     // Directorio (temp/, dist/)
     if (pattern.endsWith('/')) {
       const dir = pattern.slice(0, -1);
-      if (fullPath.includes(path.sep + dir + path.sep) || 
-          fullPath.includes(dir + path.sep) ||
-          name === dir) {
+      if (fullPath.includes(path.sep + dir + path.sep) ||
+        fullPath.includes(dir + path.sep) ||
+        name === dir) {
         return true;
       }
     }
@@ -439,12 +439,12 @@ function buildContent(files, config) {
     content += '```' + lang + '\n';
     content += '// ' + relativePath + '\n';
     content += fileContent;
-    
+
     // Asegurar que termina con newline
     if (!fileContent.endsWith('\n')) {
       content += '\n';
     }
-    
+
     content += '```\n\n';
   }
 
