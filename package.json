@@ -1,7 +1,7 @@
 {
   "name": "mkctx",
-  "version": "2.0.1",
-  "description": "Generate markdown context files from your project code for AI assistants",
+  "version": "3.0.0",
+  "description": "Generate markdown context files from your project code and chat with AI using Ollama",
   "main": "bin/mkctx.js",
   "bin": {
     "mkctx": "./bin/mkctx.js"
@@ -25,10 +25,13 @@
     "llm",
     "chatgpt",
     "claude",
+    "ollama",
     "prompt",
     "code-context",
     "code-documentation",
-    "project-context"
+    "project-context",
+    "code-analysis",
+    "chat"
   ],
   "author": "David200197",
   "license": "MIT",
@@ -47,11 +50,17 @@
     "favicon.svg"
   ],
   "engines": {
-    "node": ">=14.0.0"
+    "node": ">=18.0.0"
   },
   "os": [
     "darwin",
     "linux",
     "win32"
-  ]
+  ],
+  "dependencies": {
+    "chalk": "^4.1.2",
+    "conf": "^10.2.0",
+    "inquirer": "^8.2.6",
+    "ora": "^5.4.1"
+  }
 }
