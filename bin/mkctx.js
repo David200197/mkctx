@@ -25,7 +25,7 @@ const CONFIG_FILE = 'mkctx.config.json';
 
 const DEFAULT_PROJECT_CONFIG = {
     src: ".",
-    ignore: "mkctx.config.json, pnpm-lock.yaml, **/.titan/, mkctx/, node_modules/, .git/, dist/, build/, target/, .next/, out/, .cache, package-lock.json, README.md, *.log, temp/, tmp/, coverage/, .nyc_output, .env, .env.local, .env.development.local, .env.test.local, .env.production.local, npm-debug.log*, yarn-debug.log*, yarn-error.log*, .npm, .yarn-integrity, .parcel-cache, .vuepress/dist, .svelte-kit, **/*.rs.bk, .idea/, .vscode/, .DS_Store, Thumbs.db, *.swp, *.swo, .~lock.*, Cargo.lock, .cargo/registry/, .cargo/git/, .rustup/, *.pdb, *.dSYM/, *.so, *.dll, *.dylib, *.exe, *.lib, *.a, *.o, *.rlib, *.d, *.tmp, *.bak, *.orig, *.rej, *.pyc, *.pyo, *.class, *.jar, *.war, *.ear, *.zip, *.tar.gz, *.rar, *.7z, *.iso, *.img, *.dmg, *.pdf, *.doc, *.docx, *.xls, *.xlsx, *.ppt, *.pptx",
+    ignore: "mkctx.config.json, pnpm-lock.yaml, **/.titan/, mkctx/, node_modules/, .git/, dist/, build/, target/, .next/, out/, .cache, package-lock.json, *.log, temp/, tmp/, coverage/, .nyc_output, .env, .env.local, .env.development.local, .env.test.local, .env.production.local, npm-debug.log*, yarn-debug.log*, yarn-error.log*, .npm, .yarn-integrity, .parcel-cache, .vuepress/dist, .svelte-kit, **/*.rs.bk, .idea/, .vscode/, .DS_Store, Thumbs.db, *.swp, *.swo, .~lock.*, Cargo.lock, .cargo/registry/, .cargo/git/, .rustup/, *.pdb, *.dSYM/, *.so, *.dll, *.dylib, *.exe, *.lib, *.a, *.o, *.rlib, *.d, *.tmp, *.bak, *.orig, *.rej, *.pyc, *.pyo, *.class, *.jar, *.war, *.ear, *.zip, *.tar.gz, *.rar, *.7z, *.iso, *.img, *.dmg, *.pdf, *.doc, *.docx, *.xls, *.xlsx, *.ppt, *.pptx",
     output: "./mkctx",
     first_comment: "/* Project Context */",
     last_comment: "/* End of Context */"
@@ -73,16 +73,10 @@ const KNOWN_FILES = new Set([
     'procfile', 'vagrantfile', 'jenkinsfile',
     '.gitignore', '.gitattributes', '.editorconfig',
     '.eslintrc', '.prettierrc', '.babelrc',
-    '.env', '.env.example', '.env.local'
+    '.env', '.env.example', '.env.local',
+    'readme.md', 'readme.txt', 'readme',
+    'license', 'license.md', 'license.txt'
 ]);
-
-// ============================================
-// GLOBAL STATE
-// ============================================
-
-let generatedContext = null;
-let contextFiles = [];
-let contextStats = {};
 
 // ============================================
 // CONFIGURATION MANAGEMENT
@@ -151,6 +145,11 @@ function estimateTokens(text) {
     return Math.ceil(text.length / 4);
 }
 
+// Normalize path to always use forward slashes
+function normalizePath(filePath) {
+    return filePath.replace(/\\/g, '/');
+}
+
 // ============================================
 // FILE OPERATIONS
 // ============================================
@@ -194,6 +193,10 @@ function matchWildcard(pattern, filename) {
 }
 
 function shouldIgnore(fullPath, name, relativePath, patterns) {
+    // Normalize paths for comparison
+    const normalizedFull = normalizePath(fullPath);
+    const normalizedRelative = normalizePath(relativePath);
+    
     const systemIgnores = [
         '.git', '.DS_Store', 'Thumbs.db', 'node_modules',
         '.svn', '.hg', '__pycache__', '.pytest_cache',
@@ -201,8 +204,9 @@ function shouldIgnore(fullPath, name, relativePath, patterns) {
     ];
 
     for (const ignore of systemIgnores) {
-        if (fullPath.includes(path.sep + ignore + path.sep) ||
-            fullPath.includes(ignore + path.sep) ||
+        if (normalizedFull.includes('/' + ignore + '/') ||
+            normalizedFull.includes('/' + ignore) ||
+            normalizedFull.endsWith('/' + ignore) ||
             name === ignore) {
             return true;
         }
@@ -211,19 +215,19 @@ function shouldIgnore(fullPath, name, relativePath, patterns) {
     for (const pattern of patterns) {
         if (pattern.includes('*')) {
             if (matchWildcard(pattern, name)) return true;
-            if (matchWildcard(pattern, relativePath)) return true;
+            if (matchWildcard(pattern, normalizedRelative)) return true;
         }
 
         if (pattern.endsWith('/')) {
             const dir = pattern.slice(0, -1);
-            if (fullPath.includes(path.sep + dir + path.sep) ||
-                fullPath.includes(dir + path.sep) ||
+            if (normalizedFull.includes('/' + dir + '/') ||
+                normalizedFull.endsWith('/' + dir) ||
                 name === dir) {
                 return true;
             }
         }
 
-        if (relativePath === pattern || name === pattern) {
+        if (normalizedRelative === pattern || name === pattern) {
             return true;
         }
     }
@@ -231,9 +235,16 @@ function shouldIgnore(fullPath, name, relativePath, patterns) {
     return false;
 }
 
-function getFiles(srcPath, config) {
-    const files = [];
+// ============================================
+// SCAN AND BUILD JSON IN ONE PASS
+// ============================================
+
+function scanAndBuildJson(srcPath, config) {
+    const jsonArray = [];
     const ignorePatterns = parseIgnorePatterns(config.ignore);
+    let totalSize = 0;
+    let totalLines = 0;
+    const filesByExt = {};
 
     function walk(dir) {
         if (!fs.existsSync(dir)) return;
@@ -256,65 +267,89 @@ function getFiles(srcPath, config) {
             if (entry.isDirectory()) {
                 walk(fullPath);
             } else if (entry.isFile() && isTextFile(entry.name)) {
-                files.push({
-                    fullPath,
-                    relativePath,
+                // Read file immediately when found
+                let content;
+                try {
+                    content = fs.readFileSync(fullPath, 'utf-8');
+                } catch (err) {
+                    // Skip files that can't be read
+                    continue;
+                }
+
+                const ext = path.extname(entry.name).slice(1).toLowerCase() || null;
+                const lines = content.split('\n').length;
+                const size = Buffer.byteLength(content, 'utf-8');
+                const language = getLanguage(entry.name);
+
+                // Update stats
+                totalSize += size;
+                totalLines += lines;
+                filesByExt[ext || 'other'] = (filesByExt[ext || 'other'] || 0) + 1;
+
+                // Add to JSON array immediately
+                jsonArray.push({
+                    path: normalizePath(relativePath),
                     name: entry.name,
-                    ext: path.extname(entry.name).slice(1).toLowerCase()
+                    extension: ext,
+                    language: language,
+                    lines: lines,
+                    size: size,
+                    content: content
                 });
             }
         }
     }
 
     walk(srcPath);
-    return files.sort((a, b) => a.relativePath.localeCompare(b.relativePath));
+
+    // Sort by path for consistency
+    jsonArray.sort((a, b) => a.path.localeCompare(b.path));
+
+    const stats = {
+        files: jsonArray.length,
+        totalSize,
+        totalLines,
+        filesByExt
+    };
+
+    return { jsonArray, stats };
 }
 
-function buildContextContent(files, config, srcPath) {
+// ============================================
+// FORMAT CONVERTERS (from base JSON)
+// ============================================
+
+function toJson(baseJson) {
+    return JSON.stringify(baseJson, null, 2);
+}
+
+function toMarkdown(baseJson, config) {
     let content = '';
-    let totalSize = 0;
-    let totalLines = 0;
-    const filesByExt = {};
 
     if (config.first_comment) {
         content += config.first_comment + '\n\n';
     }
 
+    // Project structure
     content += '## Project Structure\n\n```\n';
     const dirs = new Set();
-    files.forEach(f => {
-        const dir = path.dirname(f.relativePath);
+    baseJson.forEach(f => {
+        const dir = path.dirname(f.path);
         if (dir !== '.') dirs.add(dir);
     });
-    dirs.forEach(d => content += `📁 ${d}/\n`);
-    content += `\n${files.length} files total\n\`\`\`\n\n`;
+    Array.from(dirs).sort().forEach(d => content += `📁 ${d}/\n`);
+    content += `\n${baseJson.length} files total\n\`\`\`\n\n`;
 
+    // Source files
     content += '## Source Files\n\n';
 
-    for (const file of files) {
-        let fileContent;
-        try {
-            fileContent = fs.readFileSync(file.fullPath, 'utf-8');
-        } catch (err) {
-            console.log(chalk.yellow(`⚠️  Could not read: ${file.relativePath}`));
-            continue;
-        }
-
-        const lang = getLanguage(file.name);
-        const lines = fileContent.split('\n').length;
-
-        totalSize += Buffer.byteLength(fileContent, 'utf-8');
-        totalLines += lines;
-        filesByExt[file.ext || 'other'] = (filesByExt[file.ext || 'other'] || 0) + 1;
-
-        content += `### ${file.relativePath}\n\n`;
-        content += '```' + lang + '\n';
-        content += fileContent;
-
-        if (!fileContent.endsWith('\n')) {
+    for (const file of baseJson) {
+        content += `### ${file.path}\n\n`;
+        content += '```' + file.language + '\n';
+        content += file.content;
+        if (!file.content.endsWith('\n')) {
             content += '\n';
         }
-
         content += '```\n\n';
     }
 
@@ -322,15 +357,83 @@ function buildContextContent(files, config, srcPath) {
         content += config.last_comment;
     }
 
-    contextStats = {
-        files: files.length,
-        totalSize,
-        totalLines,
-        filesByExt,
-        estimatedTokens: estimateTokens(content)
-    };
+    return content;
+}
+
+function toToon(baseJson, stats) {
+    let content = '';
+
+    // Meta header
+    content += `# Project Context\n`;
+    content += `# Generated: ${new Date().toISOString()}\n`;
+    content += `# Files: ${baseJson.length}\n`;
+    content += `# Lines: ${stats.totalLines}\n`;
+    content += `# Size: ${stats.totalSize} bytes\n\n`;
+
+    // Files table (compact tabular format - TOON's strength)
+    content += `files[${baseJson.length}]{path,name,extension,language,lines,size}:\n`;
+    for (const file of baseJson) {
+        const ext = file.extension || '';
+        content += `  ${escapeToonValue(file.path)},${escapeToonValue(file.name)},${ext},${file.language},${file.lines},${file.size}\n`;
+    }
+
+    content += '\n';
+
+    // File contents
+    for (let i = 0; i < baseJson.length; i++) {
+        const file = baseJson[i];
+        content += `---\n`;
+        content += `[${i}] ${file.path}\n`;
+        content += `language: ${file.language}\n`;
+        content += `content:\n`;
+        // Indent each line with 2 spaces
+        const lines = file.content.split('\n');
+        for (const line of lines) {
+            content += `  ${line}\n`;
+        }
+    }
 
     return content;
+}
+
+function escapeToonValue(value) {
+    if (value === null || value === undefined) return '';
+    const str = String(value);
+    if (str.includes(',') || str.includes('\n') || str.includes('"') || 
+        str.startsWith(' ') || str.endsWith(' ')) {
+        return '"' + str.replace(/"/g, '""').replace(/\n/g, '\\n') + '"';
+    }
+    return str;
+}
+
+function toXml(baseJson) {
+    let content = '<?xml version="1.0" encoding="UTF-8"?>\n';
+    content += '<context>\n';
+
+    for (const file of baseJson) {
+        content += `  <file>\n`;
+        content += `    <path>${escapeXml(file.path)}</path>\n`;
+        content += `    <name>${escapeXml(file.name)}</name>\n`;
+        content += `    <extension>${escapeXml(file.extension || '')}</extension>\n`;
+        content += `    <language>${escapeXml(file.language)}</language>\n`;
+        content += `    <lines>${file.lines}</lines>\n`;
+        content += `    <size>${file.size}</size>\n`;
+        content += `    <content><![CDATA[\n${file.content}${file.content.endsWith('\n') ? '' : '\n'}]]></content>\n`;
+        content += `  </file>\n`;
+    }
+
+    content += '</context>\n';
+    return content;
+}
+
+function escapeXml(str) {
+    if (str === null || str === undefined) return '';
+    return String(str)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&apos;');
 }
 
 // ============================================
@@ -356,7 +459,7 @@ async function generateContextDynamic() {
     ]);
 
     const config = { ...DEFAULT_PROJECT_CONFIG, src: srcPath };
-    return generateContextFromConfig(config, srcPath);
+    return generateContext(config, srcPath);
 }
 
 async function generateContextFromConfigFile() {
@@ -368,33 +471,30 @@ async function generateContextFromConfigFile() {
         return null;
     }
 
-    return generateContextFromConfig(config, config.src);
+    return generateContext(config, config.src);
 }
 
-function generateContextFromConfig(config, srcPath) {
-    const spinner = ora(`Scanning ${srcPath}...`).start();
+function generateContext(config, srcPath) {
+    const spinner = ora(`Scanning and reading files from ${srcPath}...`).start();
 
     if (!fs.existsSync(srcPath)) {
         spinner.fail(`Source path does not exist: ${srcPath}`);
         return null;
     }
 
-    contextFiles = getFiles(srcPath, config);
+    // Single pass: scan AND build JSON at the same time
+    const { jsonArray, stats } = scanAndBuildJson(srcPath, config);
 
-    if (contextFiles.length === 0) {
+    if (jsonArray.length === 0) {
         spinner.fail(`No files found in: ${srcPath}`);
         return null;
     }
 
-    spinner.text = `Building context from ${contextFiles.length} files...`;
-    generatedContext = buildContextContent(contextFiles, config, srcPath);
-
-    spinner.succeed(`Context generated: ${chalk.yellow(contextFiles.length)} files, ${chalk.yellow(formatSize(contextStats.totalSize))}`);
+    spinner.succeed(`Context built: ${chalk.yellow(jsonArray.length)} files, ${chalk.yellow(formatSize(stats.totalSize))}`);
 
     return {
-        content: generatedContext,
-        files: contextFiles,
-        stats: contextStats,
+        baseJson: jsonArray,
+        stats: stats,
         config
     };
 }
@@ -403,36 +503,100 @@ function generateContextFromConfig(config, srcPath) {
 // SAVE CONTEXT
 // ============================================
 
-async function saveContext(result) {
+async function saveContext(result, formats) {
     loadDependencies();
 
-    let outputPath;
-
-    if (result.config.output) {
-        outputPath = result.config.output;
-    } else {
-        const { savePath } = await inquirer.prompt([
-            {
-                type: 'input',
-                name: 'savePath',
-                message: 'Enter output directory:',
-                default: './mkctx'
-            }
-        ]);
-        outputPath = savePath;
-    }
+    let outputPath = result.config.output || './mkctx';
 
     if (!fs.existsSync(outputPath)) {
         fs.mkdirSync(outputPath, { recursive: true });
     }
 
-    const outputFile = path.join(outputPath, 'context.md');
-    fs.writeFileSync(outputFile, result.content);
+    const savedFiles = [];
 
-    console.log(chalk.green(`\n✅ Context saved to: ${chalk.yellow(outputFile)}`));
-    console.log(chalk.gray(`   ${result.stats.files} files, ${formatSize(result.stats.totalSize)}\n`));
+    for (const format of formats) {
+        let content;
+        let filename;
 
-    return outputFile;
+        switch (format) {
+            case 'json':
+                content = toJson(result.baseJson);
+                filename = 'context.json';
+                break;
+            case 'md':
+                content = toMarkdown(result.baseJson, result.config);
+                filename = 'context.md';
+                break;
+            case 'toon':
+                content = toToon(result.baseJson, result.stats);
+                filename = 'context.toon';
+                break;
+            case 'xml':
+                content = toXml(result.baseJson);
+                filename = 'context.xml';
+                break;
+        }
+
+        const outputFile = path.join(outputPath, filename);
+        fs.writeFileSync(outputFile, content);
+        const size = Buffer.byteLength(content, 'utf-8');
+        const tokens = estimateTokens(content);
+        savedFiles.push({ format, file: outputFile, size, tokens });
+    }
+
+    console.log(chalk.green('\n✅ Context saved:\n'));
+    for (const { format, file, size, tokens } of savedFiles) {
+        console.log(chalk.white(`   ${chalk.cyan(format.toUpperCase().padEnd(4))} → ${chalk.yellow(file)}`));
+        console.log(chalk.gray(`         ${formatSize(size)} | ~${tokens.toLocaleString()} tokens\n`));
+    }
+
+    return savedFiles;
+}
+
+// ============================================
+// FORMAT SELECTION
+// ============================================
+
+async function selectFormat() {
+    loadDependencies();
+
+    const { format } = await inquirer.prompt([
+        {
+            type: 'list',
+            name: 'format',
+            message: 'Select output format:',
+            default: 'all',
+            choices: [
+                {
+                    name: chalk.magenta('📦 All formats (MD, JSON, TOON, XML)'),
+                    value: 'all'
+                },
+                new inquirer.Separator(),
+                {
+                    name: chalk.blue('📝 Markdown (.md)'),
+                    value: 'md'
+                },
+                {
+                    name: chalk.green('🔧 JSON (.json) - Simple array'),
+                    value: 'json'
+                },
+                {
+                    name: chalk.yellow('🎒 TOON (.toon) - Token-optimized'),
+                    value: 'toon'
+                },
+                {
+                    name: chalk.red('📄 XML (.xml)'),
+                    value: 'xml'
+                }
+            ]
+        }
+    ]);
+
+    if (format === 'all') {
+        return ['json', 'md', 'toon', 'xml'];
+    }
+
+    return [format];
 }
 
 // ============================================
@@ -488,41 +652,6 @@ async function showMainMenu() {
     return action;
 }
 
-async function showPostGenerationMenu(result) {
-    loadDependencies();
-
-    console.log(chalk.cyan('\n📊 Context Summary:'));
-    console.log(chalk.white(`   Files: ${result.stats.files}`));
-    console.log(chalk.white(`   Lines: ${result.stats.totalLines.toLocaleString()}`));
-    console.log(chalk.white(`   Size: ${formatSize(result.stats.totalSize)}`));
-    console.log(chalk.white(`   Est. tokens: ~${result.stats.estimatedTokens.toLocaleString()}`));
-
-    const { action } = await inquirer.prompt([
-        {
-            type: 'list',
-            name: 'action',
-            message: 'What would you like to do with this context?',
-            choices: [
-                {
-                    name: chalk.blue('💾 Save context to file'),
-                    value: 'save'
-                },
-                new inquirer.Separator(),
-                {
-                    name: chalk.gray('🔙 Back to main menu'),
-                    value: 'back'
-                },
-                {
-                    name: chalk.red('❌ Exit'),
-                    value: 'exit'
-                }
-            ]
-        }
-    ]);
-
-    return action;
-}
-
 // ============================================
 // MAIN APPLICATION
 // ============================================
@@ -557,18 +686,16 @@ async function main() {
             case 'from-config': {
                 const result = await generateContextFromConfigFile();
                 if (result) {
-                    let postAction = await showPostGenerationMenu(result);
+                    console.log(chalk.cyan('\n📊 Context Summary:'));
+                    console.log(chalk.white(`   Files: ${result.stats.files}`));
+                    console.log(chalk.white(`   Lines: ${result.stats.totalLines.toLocaleString()}`));
+                    console.log(chalk.white(`   Size: ${formatSize(result.stats.totalSize)}`));
+
+                    const formats = await selectFormat();
+                    await saveContext(result, formats);
                     
-                    while (postAction !== 'back' && postAction !== 'exit') {
-                        if (postAction === 'save') {
-                            await saveContext(result);
-                            postAction = await showPostGenerationMenu(result);
-                        }
-                    }
-                    
-                    if (postAction === 'exit') {
-                        running = false;
-                    }
+                    console.log(chalk.yellow('👋 Done!\n'));
+                    running = false;
                 }
                 break;
             }
@@ -576,18 +703,16 @@ async function main() {
             case 'dynamic': {
                 const result = await generateContextDynamic();
                 if (result) {
-                    let postAction = await showPostGenerationMenu(result);
+                    console.log(chalk.cyan('\n📊 Context Summary:'));
+                    console.log(chalk.white(`   Files: ${result.stats.files}`));
+                    console.log(chalk.white(`   Lines: ${result.stats.totalLines.toLocaleString()}`));
+                    console.log(chalk.white(`   Size: ${formatSize(result.stats.totalSize)}`));
+
+                    const formats = await selectFormat();
+                    await saveContext(result, formats);
                     
-                    while (postAction !== 'back' && postAction !== 'exit') {
-                        if (postAction === 'save') {
-                            await saveContext(result);
-                            postAction = await showPostGenerationMenu(result);
-                        }
-                    }
-                    
-                    if (postAction === 'exit') {
-                        running = false;
-                    }
+                    console.log(chalk.yellow('👋 Done!\n'));
+                    running = false;
                 }
                 break;
             }
@@ -627,12 +752,22 @@ function showHelp() {
   mkctx help               Show this help message
   mkctx version            Show version
 
- ${chalk.yellow('Configuration (mkctx.config.json):')}
-  src            Source directory to scan (default: ".")
-  ignore         Comma-separated patterns to ignore
-  output         Output directory (default: "./mkctx")
-  first_comment  Comment at the beginning of context
-  last_comment   Comment at the end of context
+ ${chalk.yellow('Output Formats:')}
+  ${chalk.green('JSON')}    Simple array of file objects (base format)
+  ${chalk.blue('MD')}      Markdown with code blocks
+  ${chalk.yellow('TOON')}    Token-Oriented Object Notation (LLM optimized)
+  ${chalk.red('XML')}     XML with CDATA sections
+
+ ${chalk.yellow('JSON Structure:')}
+  [{
+    "path": "src/index.ts",
+    "name": "index.ts", 
+    "extension": "ts",
+    "language": "typescript",
+    "lines": 150,
+    "size": 4096,
+    "content": "..."
+  }]
 
  ${chalk.gray('More info: https://github.com/pnkkzero/mkctx')}
 `));
@@ -643,7 +778,7 @@ function showVersion() {
         const pkg = require('./package.json');
         console.log(`mkctx v${pkg.version}`);
     } catch {
-        console.log('mkctx v3.0.0');
+        console.log('mkctx v4.0.0');
     }
 }
 

@@ -1,6 +1,6 @@
 {
   "name": "mkctx",
-  "version": "3.0.0",
+  "version": "4.0.0",
   "description": "Generate markdown context files from your project code and chat with AI using Ollama",
   "main": "bin/mkctx.js",
   "bin": {
