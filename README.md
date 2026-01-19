@@ -23,6 +23,7 @@
 - 🚀 **Multi-platform** - Works on Windows, macOS, and Linux
 - 📝 **Smart Ignoring** - Respects custom ignore patterns and common system files
 - ⚙️ **Configurable** - Customize source directories, output locations, and comments
+- ✏️ **Custom Naming** - Specify custom filenames for your outputs or use the default 'context'
 - 🎯 **AI-Friendly** - Outputs code in markdown format ideal for AI prompts
 - 🎨 **Syntax Highlighting** - Proper language detection for code blocks
 - 🔄 **Dynamic Mode** - Interactive path selection when needed
@@ -49,7 +50,7 @@ mkctx
 This opens an interactive menu where you can:
 1. Generate context from config file or dynamically
 2. View context statistics
-3. Save the context to a file
+3. Choose output formats and save with a custom name
 
 ### Create Configuration File
 
@@ -86,11 +87,17 @@ After generating context:
    Size: 156.23 KB
    Est. tokens: ~39,058
 
-? What would you like to do with this context?
-  ❯ 💾 Save context to file
-    🔙 Back to main menu
-    ❌ Exit
+? Select output format:
+  ❯ 📦 All formats (MD, JSON, TOON, XML)
+    📝 Markdown (.md)
+    🔧 JSON (.json) - Simple array
+    🎒 TOON (.toon) - Token-optimized
+    📄 XML (.xml)
+
+? Enter a name for the output files: (context)
 ```
+
+> **Note:** Simply press Enter to use the default name `context`.
 
 ## ⚙️ Configuration
 
@@ -144,7 +151,7 @@ These are always ignored automatically:
 
 ## 📄 Output Format
 
-The generated `context.md` file contains your project code:
+The generated file contains your project code. When saving, you can specify a filename (e.g., `my_project_docs.md`) or use the default.
 
 ````markdown
 /* Project Context */
@@ -206,7 +213,7 @@ mkctx automatically detects and applies proper syntax highlighting for:
 - **📚 Code Understanding** - Share project overview for quick understanding
 - **👥 Code Reviews** - Share project overview with reviewers
 - **🎓 Onboarding** - Help new developers understand the project
-- **📝 Documentation** - Generate a snapshot of your codebase
+- **📝 Documentation** - Generate a snapshot of your codebase with custom naming
 
 ## 🖥️ Platform Support
 
@@ -236,6 +243,11 @@ Or fix npm permissions: https://docs.npmjs.com/resolving-eacces-permissions-erro
 
 ## 📋 Changelog
 
+### v4.0.0
+
+- ✏️ Added interactive filename selection when saving (defaults to "context")
+- 🎨 Improved UI/UX for file saving workflow
+
 ### v3.0.0
 
 - 🎯 Simplified to focus on context generation
@@ -259,9 +271,3 @@ Contributions are welcome! Please feel free to submit pull requests or open issu
 ## 📄 License
 
 MIT License - see [LICENSE](LICENSE) file for details.
-
----
-
-<p align="center">
-  Made with ❤️ for developers who love AI-assisted coding
-</p>

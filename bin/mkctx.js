@@ -101,7 +101,7 @@ function hasProjectConfig() {
 
 function createProjectConfig() {
     loadDependencies();
-    
+
     if (!fs.existsSync('mkctx')) {
         fs.mkdirSync('mkctx', { recursive: true });
     }
@@ -196,7 +196,7 @@ function shouldIgnore(fullPath, name, relativePath, patterns) {
     // Normalize paths for comparison
     const normalizedFull = normalizePath(fullPath);
     const normalizedRelative = normalizePath(relativePath);
-    
+
     const systemIgnores = [
         '.git', '.DS_Store', 'Thumbs.db', 'node_modules',
         '.svn', '.hg', '__pycache__', '.pytest_cache',
@@ -399,7 +399,7 @@ function toToon(baseJson, stats) {
 function escapeToonValue(value) {
     if (value === null || value === undefined) return '';
     const str = String(value);
-    if (str.includes(',') || str.includes('\n') || str.includes('"') || 
+    if (str.includes(',') || str.includes('\n') || str.includes('"') ||
         str.startsWith(' ') || str.endsWith(' ')) {
         return '"' + str.replace(/"/g, '""').replace(/\n/g, '\\n') + '"';
     }
@@ -464,7 +464,7 @@ async function generateContextDynamic() {
 
 async function generateContextFromConfigFile() {
     loadDependencies();
-    
+
     const config = loadProjectConfig();
     if (!config) {
         console.log(chalk.yellow('\n⚠️  No config file found.'));
@@ -503,8 +503,21 @@ function generateContext(config, srcPath) {
 // SAVE CONTEXT
 // ============================================
 
+// ============================================
+// SAVE CONTEXT
+// ============================================
+
 async function saveContext(result, formats) {
     loadDependencies();
+
+    const { fileName } = await inquirer.prompt([
+        {
+            type: 'input',
+            name: 'fileName',
+            message: 'Enter a name for the output files:',
+            default: 'context'
+        }
+    ]);
 
     let outputPath = result.config.output || './mkctx';
 
@@ -521,19 +534,19 @@ async function saveContext(result, formats) {
         switch (format) {
             case 'json':
                 content = toJson(result.baseJson);
-                filename = 'context.json';
+                filename = `${fileName}.json`;
                 break;
             case 'md':
                 content = toMarkdown(result.baseJson, result.config);
-                filename = 'context.md';
+                filename = `${fileName}.md`;
                 break;
             case 'toon':
                 content = toToon(result.baseJson, result.stats);
-                filename = 'context.toon';
+                filename = `${fileName}.toon`;
                 break;
             case 'xml':
                 content = toXml(result.baseJson);
-                filename = 'context.xml';
+                filename = `${fileName}.xml`;
                 break;
         }
 
@@ -628,8 +641,8 @@ async function showMainMenu() {
         },
         new inquirer.Separator(),
         {
-            name: hasConfig 
-                ? chalk.gray('⚙️  View configuration') 
+            name: hasConfig
+                ? chalk.gray('⚙️  View configuration')
                 : chalk.yellow('⚙️  Create configuration file'),
             value: 'config'
         },
@@ -693,7 +706,7 @@ async function main() {
 
                     const formats = await selectFormat();
                     await saveContext(result, formats);
-                    
+
                     console.log(chalk.yellow('👋 Done!\n'));
                     running = false;
                 }
@@ -710,7 +723,7 @@ async function main() {
 
                     const formats = await selectFormat();
                     await saveContext(result, formats);
-                    
+
                     console.log(chalk.yellow('👋 Done!\n'));
                     running = false;
                 }
@@ -738,7 +751,7 @@ async function main() {
 
 function showHelp() {
     loadDependencies();
-    
+
     console.log(chalk.cyan(`
 ╔════════════════════════════════════════════════════════════╗
 ║  📄 mkctx - Make Context for AI Code Analysis              ║
