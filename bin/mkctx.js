@@ -388,8 +388,8 @@ function toMarkdown(files, config) {
 
     const sources = files.map(file => {
         const body = file.content.endsWith('\n') ? file.content : file.content + '\n';
-        return `### ${file.path}\n\n\`\`\`${file.language}\n${body}\`\`\`\n`;
-    }).join('\n');
+        return `### ${file.path}\n<!-- ${file.lines} lines -->\n\n\`\`\`${file.language}\n${body}\`\`\`\n`;
+    }).join('\n---\n');
 
     return [
         config.first_comment,
