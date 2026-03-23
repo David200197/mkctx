@@ -9,13 +9,18 @@ const path = require('path');
 // LAZY-LOADED DEPENDENCIES
 // ============================================
 
-let inquirer, chalk, ora;
+let inquirer, chalk, ora, archiver;
 
 function loadDependencies() {
     if (inquirer) return;
     inquirer = require('inquirer');
     chalk    = require('chalk');
     ora      = require('ora');
+}
+
+function loadArchiver() {
+    if (archiver) return;
+    archiver = require('archiver');
 }
 
 // ============================================
@@ -32,7 +37,7 @@ const DEFAULT_CONFIG = {
     last_comment:  '/* End of Context */',
 };
 
-const VALID_FORMATS = ['json', 'md', 'toon', 'xml'];
+const VALID_FORMATS = ['json', 'md', 'toon', 'xml', 'zip'];
 
 const LANG_MAP = {
     js: 'javascript', ts: 'typescript', jsx: 'jsx',    tsx: 'tsx',
@@ -449,7 +454,7 @@ function toXml(files) {
     const fileEntries = files.map(f => [
         '  <file>',
         `    <path>${escapeXml(f.path)}</path>`,
-        `    <name>${escapeXml(f.name)}</name>`,
+        `    <n>${escapeXml(f.name)}</n>`,
         `    <extension>${escapeXml(f.extension || '')}</extension>`,
         `    <language>${escapeXml(f.language)}</language>`,
         `    <lines>${f.lines}</lines>`,
@@ -511,6 +516,46 @@ function printSummary(stats) {
 }
 
 // ============================================
+// SAVE AS ZIP
+// ============================================
+
+async function saveAsZip(result, fileName) {
+    loadArchiver();
+
+    const outputDir = result.config.output || './mkctx';
+    fs.mkdirSync(outputDir, { recursive: true });
+
+    const zipPath = path.join(outputDir, `${fileName}.zip`);
+    const output  = fs.createWriteStream(zipPath);
+    const archive = archiver('zip', { zlib: { level: 9 } });
+
+    return new Promise((resolve, reject) => {
+        output.on('close', () => {
+            const size = archive.pointer();
+            console.log(chalk.green('\n✅ ZIP saved:\n'));
+            console.log(chalk.white(`   ${chalk.cyan('ZIP ')} → ${chalk.yellow(zipPath)}`));
+            console.log(chalk.gray(`         ${formatSize(size)} | ${result.files.length} files\n`));
+            resolve({ format: 'zip', file: zipPath, size, tokens: 0 });
+        });
+
+        archive.on('warning', err => {
+            if (err.code !== 'ENOENT') reject(err);
+        });
+
+        archive.on('error', reject);
+
+        archive.pipe(output);
+
+        // Each scanned file is added at its relative path, preserving directory structure
+        for (const file of result.files) {
+            archive.append(file.content, { name: file.path });
+        }
+
+        archive.finalize();
+    });
+}
+
+// ============================================
 // SAVE CONTEXT
 // ============================================
 
@@ -531,7 +576,12 @@ async function saveContext(result, formats, fileName) {
 
     const savedFiles = [];
 
-    for (const format of formats) {
+    // Separate zip from the rest of the formats
+    const zipRequested     = formats.includes('zip');
+    const regularFormats   = formats.filter(f => f !== 'zip');
+
+    // Handle regular text-based formats
+    for (const format of regularFormats) {
         const { content, ext } = renderFormat(format, result.files, result.stats, result.config);
         const outputPath = path.join(outputDir, `${fileName}.${ext}`);
         fs.writeFileSync(outputPath, content);
@@ -543,10 +593,18 @@ async function saveContext(result, formats, fileName) {
         });
     }
 
-    console.log(chalk.green('\n✅ Context saved:\n'));
-    for (const { format, file, size, tokens } of savedFiles) {
-        console.log(chalk.white(`   ${chalk.cyan(format.toUpperCase().padEnd(4))} → ${chalk.yellow(file)}`));
-        console.log(chalk.gray(`         ${formatSize(size)} | ~${tokens.toLocaleString()} tokens\n`));
+    if (savedFiles.length > 0) {
+        console.log(chalk.green('\n✅ Context saved:\n'));
+        for (const { format, file, size, tokens } of savedFiles) {
+            console.log(chalk.white(`   ${chalk.cyan(format.toUpperCase().padEnd(4))} → ${chalk.yellow(file)}`));
+            console.log(chalk.gray(`         ${formatSize(size)} | ~${tokens.toLocaleString()} tokens\n`));
+        }
+    }
+
+    // Handle zip format
+    if (zipRequested) {
+        const zipEntry = await saveAsZip(result, fileName);
+        savedFiles.push(zipEntry);
     }
 
     return savedFiles;
@@ -572,12 +630,13 @@ async function promptFormat() {
         message: 'Select output format:',
         default: 'all',
         choices: [
-            { name: chalk.magenta('📦 All formats (MD, JSON, TOON, XML)'), value: 'all'  },
+            { name: chalk.magenta('📦 All formats (MD, JSON, TOON, XML, ZIP)'), value: 'all'  },
             new inquirer.Separator(),
-            { name: chalk.blue('📝 Markdown (.md)'),                       value: 'md'   },
-            { name: chalk.green('🔧 JSON (.json) - Simple array'),          value: 'json' },
-            { name: chalk.yellow('🎒 TOON (.toon) - Token-optimized'),      value: 'toon' },
-            { name: chalk.red('📄 XML (.xml)'),                             value: 'xml'  },
+            { name: chalk.blue('📝 Markdown (.md)'),                            value: 'md'   },
+            { name: chalk.green('🔧 JSON (.json) - Simple array'),               value: 'json' },
+            { name: chalk.yellow('🎒 TOON (.toon) - Token-optimized'),           value: 'toon' },
+            { name: chalk.red('📄 XML (.xml)'),                                  value: 'xml'  },
+            { name: chalk.cyan('🗜️  ZIP (.zip) - Original files bundled'),       value: 'zip'  },
         ],
     }]);
     return resolveFormats(format);
@@ -716,7 +775,7 @@ function showHelp() {
  ${chalk.yellow('Non-interactive flags (skip all prompts):')}
   --src      <path>             Source directory              (default: .)
   --output   <path>             Output directory              (default: ./mkctx)
-  --format   <fmt>              md, json, toon, xml, all, or comma-separated
+  --format   <fmt>              md, json, toon, xml, zip, all, or comma-separated
   --name     <filename>         Output file base name         (default: context)
   --ignore   <patterns>         Comma-separated ignore patterns
   --first-comment <text>        Override first comment header
@@ -729,6 +788,7 @@ function showHelp() {
   mkctx --src ./src
   mkctx --src . --format all --name my-project --output ./docs
   mkctx --src ./app --format md,json --ignore "*.test.ts,__tests__/"
+  mkctx --src ./app --format zip --name snapshot
   mkctx -s ./src -f toon -n snapshot
 
  ${chalk.yellow('Output Formats:')}
@@ -736,6 +796,7 @@ function showHelp() {
   ${chalk.blue('MD')}      Markdown with code blocks
   ${chalk.yellow('TOON')}    Token-Oriented Object Notation (LLM optimized)
   ${chalk.red('XML')}     XML with CDATA sections
+  ${chalk.cyan('ZIP')}     Original files bundled, preserving directory structure
 
  ${chalk.gray('More info: https://github.com/pnkkzero/mkctx')}
 `));

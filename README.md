@@ -24,6 +24,7 @@ A powerful command-line tool that generates comprehensive context files from you
 - 🎨 **Syntax Highlighting** — Proper language detection for code blocks
 - 🔄 **Dual Mode** — Interactive menu or fully non-interactive via CLI flags
 - 📊 **Context Statistics** — Token estimation and file analysis
+- 🗜️ **ZIP Export** — Bundle original files preserving the full directory structure
 
 ## Installation
 
@@ -76,11 +77,12 @@ After scanning, you choose a format and optionally a filename:
    Size:  156.23 KB
 
 ? Select output format:
-  ❯ 📦 All formats (MD, JSON, TOON, XML)
+  ❯ 📦 All formats (MD, JSON, TOON, XML, ZIP)
     📝 Markdown (.md)
     🔧 JSON (.json) - Simple array
     🎒 TOON (.toon) - Token-optimized
     📄 XML (.xml)
+    🗜️  ZIP (.zip) - Original files bundled
 
 ? Enter a name for the output files: (context)
 ```
@@ -99,7 +101,7 @@ When any of the following flags are passed, mkctx skips all prompts and runs dir
 | `--first-comment <text>` |       | Override the first comment header |           |
 | `--last-comment <text>`  |       | Override the last comment footer  |           |
 
-**Format values:** `md`, `json`, `toon`, `xml`, `all`, or comma-separated combinations.
+**Format values:** `md`, `json`, `toon`, `xml`, `zip`, `all`, or comma-separated combinations.
 
 ```bash
 # Single format
@@ -110,6 +112,12 @@ mkctx --src . --format md,json --name snapshot
 
 # All formats with custom output directory
 mkctx --src . --format all --name my-project --output ./docs
+
+# ZIP only — bundle original files
+mkctx --src ./app --format zip --name snapshot
+
+# ZIP combined with markdown
+mkctx --src . --format md,zip --name my-project
 
 # Using short aliases
 mkctx -s ./src -f toon -n snapshot
@@ -164,32 +172,33 @@ The following are always ignored automatically: `.git`, `.svn`, `.hg`, `node_mod
 | `json` | `.json`   | Simple JSON array of file objects                       |
 | `toon` | `.toon`   | Token-Oriented Object Notation — compact, LLM-optimized |
 | `xml`  | `.xml`    | XML with CDATA sections                                 |
+| `zip`  | `.zip`    | Original files bundled, preserving directory structure  |
 
 ### Markdown output example
 
 ````markdown
-/_ Project Context _/
+/* Project Context */
 
 ## Project Structure
 
-\```
+```
 📁 src/
 📁 src/components/
 
 42 files total
-\```
+```
 
 ## Source Files
 
 ### src/index.ts
 
-\```typescript
+```typescript
 import { App } from './app';
 const app = new App();
 app.start();
-\```
+```
 
-/_ End of Context _/
+/* End of Context */
 ````
 
 ### JSON output example
@@ -206,6 +215,27 @@ app.start();
     "content": "..."
   }
 ]
+```
+
+### ZIP output
+
+The `zip` format bundles every scanned file into a `.zip` archive, preserving the full relative directory structure. This is useful for sharing a clean snapshot of your project or feeding files directly to tools that accept archives.
+
+```
+context.zip
+├── src/
+│   ├── index.ts
+│   └── components/
+│       └── App.tsx
+├── package.json
+└── README.md
+```
+
+The ZIP format can be combined freely with other formats in the same run:
+
+```bash
+mkctx --src . --format md,zip --name my-project
+# Outputs: my-project.md + my-project.zip
 ```
 
 ## Supported languages
@@ -232,6 +262,7 @@ app.start();
 - **Onboarding** — Help new developers get oriented quickly
 - **Documentation** — Generate a versioned snapshot of your codebase
 - **CI/CD pipelines** — Use non-interactive flags to automate context generation
+- **Project sharing** — Use the `zip` format to hand off a clean copy of your source files
 
 ## Platform support
 
@@ -258,6 +289,12 @@ sudo npm install -g mkctx
 Or fix npm permissions: https://docs.npmjs.com/resolving-eacces-permissions-errors
 
 ## Changelog
+
+### v6.0.0
+
+- 🗜️ Added `zip` output format — bundles original files preserving directory structure
+- 📦 `--format all` now includes `zip`
+- ➕ New dependency: [`archiver`](https://www.npmjs.com/package/archiver) (pure JS, OS-agnostic)
 
 ### v5.0.0
 

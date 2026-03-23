@@ -1,6 +1,6 @@
 {
   "name": "mkctx",
-  "version": "5.0.1",
+  "version": "6.0.0",
   "description": "Generate markdown context files from your project code and chat with AI using Ollama",
   "main": "bin/mkctx.js",
   "bin": {
@@ -58,6 +58,7 @@
     "win32"
   ],
   "dependencies": {
+    "archiver": "^7.0.1",
     "chalk": "^4.1.2",
     "conf": "^10.2.0",
     "inquirer": "^8.2.6",
