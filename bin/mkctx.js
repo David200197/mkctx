@@ -31,7 +31,8 @@ const CONFIG_FILE = 'mkctx.config.json';
 
 const DEFAULT_CONFIG = {
     src:           '.',
-    ignore:        'mkctx.config.json, pnpm-lock.yaml, **/.titan/, mkctx/, node_modules/, .git/, dist/, build/, target/, .next/, out/, .cache, package-lock.json, *.log, temp/, tmp/, coverage/, .nyc_output, .env, .env.local, .env.development.local, .env.test.local, .env.production.local, npm-debug.log*, yarn-debug.log*, yarn-error.log*, .npm, .yarn-integrity, .parcel-cache, .vuepress/dist, .svelte-kit, **/*.rs.bk, .idea/, .vscode/, .DS_Store, Thumbs.db, *.swp, *.swo, .~lock.*, Cargo.lock, .cargo/registry/, .cargo/git/, .rustup/, *.pdb, *.dSYM/, *.so, *.dll, *.dylib, *.exe, *.lib, *.a, *.o, *.rlib, *.d, *.tmp, *.bak, *.orig, *.rej, *.pyc, *.pyo, *.class, *.jar, *.war, *.ear, *.zip, *.tar.gz, *.rar, *.7z, *.iso, *.img, *.dmg, *.pdf, *.doc, *.docx, *.xls, *.xlsx, *.ppt, *.pptx',
+    ignore:        'mkctx.config.json, pnpm-lock.yaml, **/.titan/, mkctx/, node_modules/, .git/, dist/, build/, target/, .next/, out/, .cache, package-lock.json, *.log, temp/, tmp/, coverage/, .nyc_output, .env, .env.local, .env.development.local, .env.test.local, .env.production.local, npm-debug.log*, yarn-debug.log*, yarn-error.log*, .npm, .yarn-integrity, .parcel-cache, .vuepress/dist, .svelte-kit, **/*.rs.bk, .idea/, .vscode/, .DS_Store, Thumbs.db, *.swp, *.swo, .~lock.*, Cargo.lock, .cargo/registry/, .cargo/git/, .rustup/, *.pdb, *.dSYM/, *.so, *.dll, *.dylib, *.exe, *.lib, *.a, *.o, *.rlib, *.d, *.tmp, *.bak, *.orig, *.rej, *.pyc, *.pyo, *.class, *.jar, *.war, *.ear, *.zip, *.tar.gz, *.rar, *.7z, *.iso, *.img, *.dmg, *.pdf, *.doc, *.docx, *.xls, *.xlsx, *.ppt, *.pptx, *.rpyc, *.rpymc, *.rpa, *.rpi, saves/, game/cache/, game/saves/',
+    extensions:    '',
     output:        './mkctx',
     first_comment: '/* Project Context */',
     last_comment:  '/* End of Context */',
@@ -50,6 +51,7 @@ const LANG_MAP = {
     yaml: 'yaml',     yml: 'yaml',      md: 'markdown', vue: 'vue',
     svelte: 'svelte', dockerfile: 'dockerfile', makefile: 'makefile',
     toml: 'toml',     ini: 'ini',       cfg: 'ini',    env: 'bash',
+    rpy: 'renpy',     rpym: 'renpy',
 };
 
 const TEXT_EXTENSIONS = new Set([
@@ -72,6 +74,7 @@ const TEXT_EXTENSIONS = new Set([
     '.hs', '.lhs', '.elm', '.pug', '.jade',
     '.ejs', '.hbs', '.handlebars', '.twig', '.blade.php',
     '.astro', '.prisma', '.sol',
+    '.rpy', '.rpym',
 ]);
 
 const KNOWN_FILES = new Set([
@@ -84,6 +87,8 @@ const KNOWN_FILES = new Set([
     'license', 'license.md', 'license.txt',
 ]);
 
+const EMPTY_SET = new Set();
+
 const SYSTEM_IGNORES = [
     '.git', '.DS_Store', 'Thumbs.db', 'node_modules',
     '.svn', '.hg', '__pycache__', '.pytest_cache',
@@ -92,7 +97,7 @@ const SYSTEM_IGNORES = [
 
 // Flags that take a value (not boolean)
 const VALUE_FLAGS = new Set([
-    'src', 'output', 'format', 'ignore', 'name', 'first-comment', 'last-comment',
+    'src', 'output', 'format', 'ignore', 'extensions', 'name', 'first-comment', 'last-comment',
     's', 'o', 'f', 'n',
 ]);
 
@@ -173,6 +178,7 @@ function resolveFlags(flags) {
         format:       flags.format || flags.f,
         name:         flags.name   || flags.n,
         ignore:       flags.ignore,
+        extensions:   flags.extensions,
         firstComment: flags['first-comment'],
         lastComment:  flags['last-comment'],
     };
@@ -202,6 +208,7 @@ function buildConfig(cliFlags = {}) {
     if (cliFlags.src)          base.src           = cliFlags.src;
     if (cliFlags.output)       base.output        = cliFlags.output;
     if (cliFlags.ignore)       base.ignore        = cliFlags.ignore;
+    if (cliFlags.extensions)   base.extensions    = cliFlags.extensions;
     if (cliFlags.firstComment) base.first_comment = cliFlags.firstComment;
     if (cliFlags.lastComment)  base.last_comment  = cliFlags.lastComment;
     return base;
@@ -270,10 +277,23 @@ function toUnixPath(filePath) {
 // FILE FILTERING
 // ============================================
 
-function isTextFile(filename) {
+function parseExtraExtensions(extensionsString) {
+    if (!extensionsString) return new Set();
+    return new Set(
+        extensionsString
+            .split(',')
+            .map(e => e.trim().toLowerCase())
+            .filter(Boolean)
+            .map(e => (e.startsWith('.') ? e : `.${e}`))
+    );
+}
+
+function isTextFile(filename, extraExtensions = EMPTY_SET) {
     const ext      = path.extname(filename).toLowerCase();
     const basename = path.basename(filename).toLowerCase();
-    return KNOWN_FILES.has(basename) || (!!ext && TEXT_EXTENSIONS.has(ext));
+    if (KNOWN_FILES.has(basename)) return true;
+    if (!ext) return false;
+    return TEXT_EXTENSIONS.has(ext) || extraExtensions.has(ext);
 }
 
 function getLanguage(filename) {
@@ -333,6 +353,7 @@ function shouldIgnore(fullPath, name, relativePath, patterns) {
 
 function scanFiles(srcPath, config) {
     const ignorePatterns = parseIgnorePatterns(config.ignore);
+    const extraExts      = parseExtraExtensions(config.extensions);
     const files          = [];
     const stats          = { files: 0, totalSize: 0, totalLines: 0, filesByExt: {} };
 
@@ -350,7 +371,7 @@ function scanFiles(srcPath, config) {
             if (shouldIgnore(fullPath, entry.name, relativePath, ignorePatterns)) continue;
 
             if (entry.isDirectory()) { walk(fullPath); continue; }
-            if (!entry.isFile() || !isTextFile(entry.name)) continue;
+            if (!entry.isFile() || !isTextFile(entry.name, extraExts)) continue;
 
             let content;
             try { content = fs.readFileSync(fullPath, 'utf-8'); }

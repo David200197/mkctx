@@ -19,6 +19,7 @@ A powerful command-line tool that generates comprehensive context files from you
 - 🚀 **Multi-platform** — Works on Windows, macOS, and Linux
 - 📝 **Smart Ignoring** — Respects custom ignore patterns and common system files
 - ⚙️ **Configurable** — Customize source directories, output locations, and comments
+- 🧩 **Extensible File Types** — Add any extension the built-in whitelist doesn't cover (`--extensions`)
 - ✏️ **Custom Naming** — Specify custom filenames for your outputs or use the default `context`
 - 🎯 **AI-Friendly** — Outputs code in markdown format ideal for AI prompts
 - 🎨 **Syntax Highlighting** — Proper language detection for code blocks
@@ -98,6 +99,7 @@ When any of the following flags are passed, mkctx skips all prompts and runs dir
 | `--format <fmt>`         | `-f`  | Output format (see below)         | `md`      |
 | `--name <filename>`      | `-n`  | Base name for output files        | `context` |
 | `--ignore <patterns>`    |       | Comma-separated ignore patterns   |           |
+| `--extensions <exts>`    |       | Extra file extensions to include  |           |
 | `--first-comment <text>` |       | Override the first comment header |           |
 | `--last-comment <text>`  |       | Override the last comment footer  |           |
 
@@ -125,6 +127,9 @@ mkctx -s ./src -f toon -n snapshot
 # With extra ignore patterns
 mkctx --src ./app --format md --ignore "*.test.ts,__tests__/"
 
+# Include file types not in the built-in whitelist
+mkctx --src ./game --format md --extensions "rpy,rpym"
+
 # Using = syntax
 mkctx --src=./src --format=md,json --name=snapshot
 ```
@@ -137,6 +142,7 @@ Run `mkctx config` to create a `mkctx.config.json` in the current directory:
 {
   "src": ".",
   "ignore": "*.log, temp/, node_modules/, .git/, dist/, build/",
+  "extensions": "",
   "output": "./mkctx",
   "first_comment": "/* Project Context */",
   "last_comment": "/* End of Context */"
@@ -147,6 +153,7 @@ Run `mkctx config` to create a `mkctx.config.json` in the current directory:
 | --------------- | -------------------------------------- | ------------------------- |
 | `src`           | Source directory to scan               | `"."`                     |
 | `ignore`        | Comma-separated patterns to ignore     | See defaults              |
+| `extensions`    | Extra file extensions to treat as text | `""`                      |
 | `output`        | Output directory for context files     | `"./mkctx"`               |
 | `first_comment` | Comment at the beginning of the output | `"/* Project Context */"` |
 | `last_comment`  | Comment at the end of the output       | `"/* End of Context */"`  |
@@ -162,7 +169,54 @@ Supported pattern types:
 - **Glob patterns:** `**/.cache/`, `**/node_modules/`
 - **Exact match:** `config.local.json`
 
-The following are always ignored automatically: `.git`, `.svn`, `.hg`, `node_modules`, `__pycache__`, `.DS_Store`, `Thumbs.db`, `.vscode`, `.idea`, binary files, images, and archives.
+The following directories are always ignored automatically, regardless of configuration: `.git`, `.svn`, `.hg`, `node_modules`, `__pycache__`, `.pytest_cache`, `.mypy_cache`, `.vscode`, `.idea`, plus `.DS_Store` and `Thumbs.db`.
+
+> **Note:** binary files, images, and archives are not excluded by ignore patterns — they simply never match the file-type whitelist described below. Ignore patterns only narrow what the whitelist already accepted.
+
+## File type detection
+
+mkctx does **not** read every file it finds. A file is included only if it matches one of:
+
+1. A known extension (see [Supported languages](#supported-languages))
+2. A known filename with no extension (`Dockerfile`, `Makefile`, `Gemfile`, `LICENSE`, …)
+3. An extension listed in `extensions` / `--extensions`
+
+Anything else is skipped silently — which is why binaries, images, fonts, and archives never end up in the output.
+
+### Extending detection
+
+If your stack uses a file type mkctx doesn't know, add it instead of forking:
+
+```bash
+# Ren'Py visual novel scripts
+mkctx --src ./game --format md --extensions "rpy,rpym"
+
+# Multiple custom types (leading dot is optional)
+mkctx --src . --format md --extensions ".hbs,.liquid,cshtml"
+```
+
+Or persist it in `mkctx.config.json`:
+
+```json
+{
+  "src": "./game",
+  "extensions": "rpy, rpym"
+}
+```
+
+The list is **additive** — it extends the built-in whitelist, never replaces it. Extensions are matched case-insensitively.
+
+> ⚠️ Only add text formats. Adding a binary extension (`.rpyc`, `.pyc`, `.class`) will pull unreadable bytes into your context and inflate token counts for nothing. Pair `--extensions` with `--ignore` when a format has a compiled sibling.
+
+### Ren'Py projects
+
+`.rpy` and `.rpym` are supported out of the box as of v6.1.0, and the default ignore list excludes `*.rpyc`, `*.rpymc`, `*.rpa`, `*.rpi`, `saves/`, `game/cache/` and `game/saves/`.
+
+```bash
+mkctx --src ./game --format md --name vn-context
+```
+
+Point `--src` at `game/`, not the project root: a root launched from the Ren'Py SDK may contain the `renpy/` and `lib/` engine trees, which would add thousands of irrelevant `.py` files. If you don't need translations, add `game/tl/` to your ignore patterns.
 
 ## Output formats
 
@@ -253,7 +307,10 @@ mkctx --src . --format md,zip --name my-project
 | Shell                   | `.sh`, `.bash`, `.zsh`, `.ps1`                  |
 | Web                     | `.html`, `.css`, `.scss`, `.vue`, `.svelte`     |
 | Data                    | `.json`, `.yaml`, `.yml`, `.xml`, `.toml`       |
+| Ren'Py                  | `.rpy`, `.rpym`                                 |
 | Other                   | `.sql`, `.graphql`, `.proto`, `.prisma`, `.sol` |
+
+Not listed? Use `--extensions` — see [Extending detection](#extending-detection).
 
 ## Use cases
 
@@ -289,6 +346,13 @@ sudo npm install -g mkctx
 Or fix npm permissions: https://docs.npmjs.com/resolving-eacces-permissions-errors
 
 ## Changelog
+
+### v6.1.0
+
+- 🧩 Added `extensions` config option and `--extensions` CLI flag to include file types outside the built-in whitelist
+- 🎮 Added native Ren'Py support: `.rpy` and `.rpym` are now scanned, with `renpy` language tagging
+- 🚫 Default ignore list now excludes Ren'Py build artifacts: `*.rpyc`, `*.rpymc`, `*.rpa`, `*.rpi`, `saves/`, `game/cache/`, `game/saves/`
+- 📖 Documented the file-type whitelist, which previously caused unknown extensions to be dropped without warning
 
 ### v6.0.0
 
