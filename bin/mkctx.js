@@ -4,6 +4,7 @@
 
 const fs   = require('fs');
 const path = require('path');
+const { promises: fsp } = fs;
 
 // ============================================
 // LAZY-LOADED DEPENDENCIES
@@ -89,19 +90,26 @@ const KNOWN_FILES = new Set([
 
 const EMPTY_SET = new Set();
 
-const SYSTEM_IGNORES = [
+// Set -> lookup O(1) en el hot path de recorrido
+const SYSTEM_IGNORES = new Set([
     '.git', '.DS_Store', 'Thumbs.db', 'node_modules',
     '.svn', '.hg', '__pycache__', '.pytest_cache',
     '.mypy_cache', '.vscode', '.idea',
-];
+]);
 
-// Flags that take a value (not boolean)
+// ============================================
+// PERFORMANCE TUNING
+// ============================================
+
+const MAX_FILE_SIZE    = 10 * 1024 * 1024; // 10 MB: saltar archivos mayores
+const READ_CONCURRENCY = 32;               // lecturas paralelas
+
+// Flags que toman valor (no boolean)
 const VALUE_FLAGS = new Set([
     'src', 'output', 'format', 'ignore', 'extensions', 'name', 'first-comment', 'last-comment',
     's', 'o', 'f', 'n',
 ]);
 
-// Flags that trigger non-interactive mode
 const NON_INTERACTIVE_FLAGS = new Set([
     'src', 's', 'output', 'o', 'format', 'f',
     'ignore', 'name', 'n', 'first-comment', 'last-comment',
@@ -170,7 +178,6 @@ function isNonInteractiveMode(flags) {
     return Object.keys(flags).some(f => NON_INTERACTIVE_FLAGS.has(f));
 }
 
-// Resolve short aliases to canonical names
 function resolveFlags(flags) {
     return {
         src:          flags.src    || flags.s,
@@ -273,12 +280,24 @@ function toUnixPath(filePath) {
     return filePath.replace(/\\/g, '/');
 }
 
+// Conteo de líneas sin split() - solo indexOf sobre el string
+function countLines(str) {
+    if (str.length === 0) return 1;
+    let count = 1;
+    let idx = str.indexOf('\n');
+    while (idx !== -1) {
+        count++;
+        idx = str.indexOf('\n', idx + 1);
+    }
+    return count;
+}
+
 // ============================================
 // FILE FILTERING
 // ============================================
 
 function parseExtraExtensions(extensionsString) {
-    if (!extensionsString) return new Set();
+    if (!extensionsString) return EMPTY_SET;
     return new Set(
         extensionsString
             .split(',')
@@ -289,19 +308,21 @@ function parseExtraExtensions(extensionsString) {
 }
 
 function isTextFile(filename, extraExtensions = EMPTY_SET) {
-    const ext      = path.extname(filename).toLowerCase();
     const basename = path.basename(filename).toLowerCase();
     if (KNOWN_FILES.has(basename)) return true;
-    if (!ext) return false;
+    const dot = filename.lastIndexOf('.');
+    if (dot <= 0) return false;
+    const ext = filename.slice(dot).toLowerCase();
     return TEXT_EXTENSIONS.has(ext) || extraExtensions.has(ext);
 }
 
 function getLanguage(filename) {
-    const ext      = path.extname(filename).slice(1).toLowerCase();
-    const basename = path.basename(filename).toLowerCase();
-    if (basename === 'dockerfile')      return 'dockerfile';
-    if (basename === 'makefile')        return 'makefile';
-    if (basename.startsWith('.env'))    return 'bash';
+    const dot      = filename.lastIndexOf('.');
+    const ext      = dot > 0 ? filename.slice(dot + 1).toLowerCase() : '';
+    const basename = filename.toLowerCase();
+    if (basename === 'dockerfile')   return 'dockerfile';
+    if (basename === 'makefile')     return 'makefile';
+    if (basename.startsWith('.env')) return 'bash';
     return LANG_MAP[ext] || ext || 'text';
 }
 
@@ -310,89 +331,166 @@ function parseIgnorePatterns(ignoreString) {
     return ignoreString.split(',').map(p => p.trim()).filter(Boolean);
 }
 
-function matchWildcard(pattern, subject) {
-    const regex = new RegExp(
-        '^' + pattern
-            .replace(/\./g, '\\.')
-            .replace(/\*\*/g, '.*')
-            .replace(/\*/g, '[^/]*') + '$',
-        'i'
-    );
-    return regex.test(subject);
+// Escapa todos los caracteres especiales de regex, incluido '*'
+// (se restaura después como wildcard)
+function escapeRegex(s) {
+    return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
-function shouldIgnore(fullPath, name, relativePath, patterns) {
-    const normFull     = toUnixPath(fullPath);
-    const normRelative = toUnixPath(relativePath);
+// Compila TODOS los patrones de ignore una sola vez.
+// Retorna una función shouldIgnore(name, relativePath) de coste mínimo.
+function compileIgnoreMatcher(ignoreString) {
+    const patterns = parseIgnorePatterns(ignoreString);
+    const exactNames   = new Set();
+    const dirNames     = new Set();
+    const wildcardSrcs = [];
 
-    const inSystemIgnore = SYSTEM_IGNORES.some(ig =>
-        normFull.includes(`/${ig}/`) ||
-        normFull.includes(`/${ig}`)  ||
-        normFull.endsWith(`/${ig}`)  ||
-        name === ig
-    );
-    if (inSystemIgnore) return true;
+    for (let i = 0; i < patterns.length; i++) {
+        const p = patterns[i];
 
-    return patterns.some(pattern => {
-        if (pattern.includes('*')) {
-            return matchWildcard(pattern, name) || matchWildcard(pattern, normRelative);
+        if (p.indexOf('*') !== -1) {
+            // Comodines: se combinan en un único regex con alternancia
+            const src = escapeRegex(p)
+                .replace(/\\\*\\\*/g, '.*')     // ** -> .*
+                .replace(/\\\*/g,   '[^/]*');   // *  -> [^/]*
+            wildcardSrcs.push(src);
+        } else if (p.endsWith('/')) {
+            dirNames.add(p.slice(0, -1));
+        } else {
+            exactNames.add(p);
         }
-        if (pattern.endsWith('/')) {
-            const dir = pattern.slice(0, -1);
-            return normFull.includes(`/${dir}/`) ||
-                   normFull.endsWith(`/${dir}`)  ||
-                   name === dir;
+    }
+
+    let wildcardRegex = null;
+    if (wildcardSrcs.length > 0) {
+        wildcardRegex = new RegExp('^(?:' + wildcardSrcs.join('|') + ')$', 'i');
+    }
+
+    return function shouldIgnore(name, relativePath) {
+        // Set lookups O(1) primero (la mayoría de patrones caen aquí)
+        if (SYSTEM_IGNORES.has(name)) return true;
+        if (exactNames.has(name) || exactNames.has(relativePath)) return true;
+        if (dirNames.has(name)) return true;
+
+        // Un único test de regex contra la alternancia combinada
+        if (wildcardRegex !== null) {
+            if (wildcardRegex.test(name)) return true;
+            if (wildcardRegex.test(relativePath)) return true;
         }
-        return normRelative === pattern || name === pattern;
-    });
+        return false;
+    };
 }
 
 // ============================================
 // FILE SCANNING
 // ============================================
 
-function scanFiles(srcPath, config) {
-    const ignorePatterns = parseIgnorePatterns(config.ignore);
-    const extraExts      = parseExtraExtensions(config.extensions);
-    const files          = [];
-    const stats          = { files: 0, totalSize: 0, totalLines: 0, filesByExt: {} };
+// Fase 1: recorrido síncrono (rápido), solo metadatos, sin leer contenido.
+function collectFileInfos(srcPath, shouldIgnore, extraExts) {
+    const out = [];
 
     function walk(dir) {
-        if (!fs.existsSync(dir)) return;
-
         let entries;
         try { entries = fs.readdirSync(dir, { withFileTypes: true }); }
         catch { return; }
 
-        for (const entry of entries) {
-            const fullPath     = path.join(dir, entry.name);
-            const relativePath = path.relative(srcPath, fullPath);
+        for (let i = 0; i < entries.length; i++) {
+            const entry = entries[i];
+            const name  = entry.name;
+            const fullPath = path.join(dir, name);
+            const unixRel  = toUnixPath(path.relative(srcPath, fullPath));
 
-            if (shouldIgnore(fullPath, entry.name, relativePath, ignorePatterns)) continue;
+            if (shouldIgnore(name, unixRel)) continue;
 
-            if (entry.isDirectory()) { walk(fullPath); continue; }
-            if (!entry.isFile() || !isTextFile(entry.name, extraExts)) continue;
+            if (entry.isDirectory()) {
+                walk(fullPath);
+                continue;
+            }
+            if (!entry.isFile()) continue;
+            if (!isTextFile(name, extraExts)) continue;
 
-            let content;
-            try { content = fs.readFileSync(fullPath, 'utf-8'); }
+            let stat;
+            try { stat = fs.statSync(fullPath); }
             catch { continue; }
+            if (stat.size > MAX_FILE_SIZE) continue;
 
-            const ext      = path.extname(entry.name).slice(1).toLowerCase() || null;
-            const lines    = content.split('\n').length;
-            const size     = Buffer.byteLength(content, 'utf-8');
-            const language = getLanguage(entry.name);
-
-            stats.totalSize  += size;
-            stats.totalLines += lines;
-            stats.filesByExt[ext || 'other'] = (stats.filesByExt[ext || 'other'] || 0) + 1;
-
-            files.push({ path: toUnixPath(relativePath), name: entry.name, extension: ext, language, lines, size, content });
+            out.push({
+                fullPath,
+                relativePath: unixRel,
+                name,
+                extension: name.lastIndexOf('.') > 0
+                    ? name.slice(name.lastIndexOf('.') + 1).toLowerCase()
+                    : null,
+                language: getLanguage(name),
+                size: stat.size,
+            });
         }
     }
 
     walk(srcPath);
-    files.sort((a, b) => a.path.localeCompare(b.path));
-    stats.files = files.length;
+    return out;
+}
+
+// Fase 2: lectura en paralelo con concurrencia limitada.
+async function readFilesConcurrently(fileInfos) {
+    const total = fileInfos.length;
+    if (total === 0) return [];
+
+    const results = new Array(total);
+    let cursor = 0;
+
+    const worker = async () => {
+        while (true) {
+            const i = cursor++;
+            if (i >= total) return;
+            const info = fileInfos[i];
+            try {
+                const content = await fsp.readFile(info.fullPath, 'utf-8');
+                results[i] = {
+                    path:      info.relativePath,
+                    name:      info.name,
+                    extension: info.extension,
+                    language:  info.language,
+                    lines:     countLines(content),
+                    size:      info.size,
+                    content,
+                };
+            } catch {
+                results[i] = null;
+            }
+        }
+    };
+
+    const workers = [];
+    const n = Math.min(READ_CONCURRENCY, total);
+    for (let i = 0; i < n; i++) workers.push(worker());
+    await Promise.all(workers);
+
+    const files = [];
+    for (let i = 0; i < total; i++) {
+        if (results[i] !== null) files.push(results[i]);
+    }
+    return files;
+}
+
+async function scanFiles(srcPath, config) {
+    const shouldIgnore = compileIgnoreMatcher(config.ignore);
+    const extraExts    = parseExtraExtensions(config.extensions);
+
+    const fileInfos = collectFileInfos(srcPath, shouldIgnore, extraExts);
+    const files     = await readFilesConcurrently(fileInfos);
+
+    // sort rápido, sin localeCompare
+    files.sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0));
+
+    const stats = { files: files.length, totalSize: 0, totalLines: 0, filesByExt: {} };
+    for (let i = 0; i < files.length; i++) {
+        const f = files[i];
+        stats.totalSize  += f.size;
+        stats.totalLines += f.lines;
+        const key = f.extension || 'other';
+        stats.filesByExt[key] = (stats.filesByExt[key] || 0) + 1;
+    }
 
     return { files, stats };
 }
@@ -406,33 +504,27 @@ function toJson(files) {
 }
 
 function toMarkdown(files, config) {
-    const dirs = [...new Set(
-        files.map(f => path.dirname(f.path)).filter(d => d !== '.')
-    )].sort();
-
+    const dirSet = new Set();
+    for (let i = 0; i < files.length; i++) {
+        const p = files[i].path;
+        const slash = p.lastIndexOf('/');
+        if (slash > 0) dirSet.add(p.slice(0, slash));
+    }
+    const dirs = [...dirSet].sort();
     const structure = dirs.map(d => `📁 ${d}/`).join('\n');
 
-    const sources = files.map(file => {
-        const body = file.content.endsWith('\n') ? file.content : file.content + '\n';
-        return `### ${file.path}\n<!-- ${file.lines} lines -->\n\n\`\`\`${file.language}\n${body}\`\`\`\n`;
-    }).join('\n---\n');
+    const parts = [];
+    parts.push(config.first_comment, '', '## Project Structure', '', '```', structure, '',
+               `${files.length} files total`, '```', '', '## Source Files', '');
 
-    return [
-        config.first_comment,
-        '',
-        '## Project Structure',
-        '',
-        '```',
-        structure,
-        '',
-        `${files.length} files total`,
-        '```',
-        '',
-        '## Source Files',
-        '',
-        sources,
-        config.last_comment,
-    ].join('\n');
+    for (let i = 0; i < files.length; i++) {
+        if (i > 0) parts.push('\n---\n');
+        const f = files[i];
+        const body = f.content.endsWith('\n') ? f.content : f.content + '\n';
+        parts.push(`### ${f.path}\n<!-- ${f.lines} lines -->\n\n\`\`\`${f.language}\n${body}\`\`\`\n`);
+    }
+    parts.push(config.last_comment);
+    return parts.join('\n');
 }
 
 function toToon(files, stats) {
@@ -463,7 +555,7 @@ function toToon(files, stats) {
 
 function escapeToon(value) {
     if (value == null) return '';
-    const str         = String(value);
+    const str = String(value);
     const needsQuotes = str.includes(',') || str.includes('\n') || str.includes('"')
         || str.startsWith(' ') || str.endsWith(' ');
     return needsQuotes
@@ -510,7 +602,7 @@ function renderFormat(format, files, stats, config) {
 // CONTEXT GENERATION
 // ============================================
 
-function generateContext(config) {
+async function generateContext(config) {
     const spinner = ora(`Scanning ${config.src}...`).start();
 
     if (!fs.existsSync(config.src)) {
@@ -518,7 +610,7 @@ function generateContext(config) {
         return null;
     }
 
-    const { files, stats } = scanFiles(config.src, config);
+    const { files, stats } = await scanFiles(config.src, config);
 
     if (files.length === 0) {
         spinner.fail(`No files found in: ${config.src}`);
@@ -567,7 +659,6 @@ async function saveAsZip(result, fileName) {
 
         archive.pipe(output);
 
-        // Each scanned file is added at its relative path, preserving directory structure
         for (const file of result.files) {
             archive.append(file.content, { name: file.path });
         }
@@ -597,15 +688,13 @@ async function saveContext(result, formats, fileName) {
 
     const savedFiles = [];
 
-    // Separate zip from the rest of the formats
-    const zipRequested     = formats.includes('zip');
-    const regularFormats   = formats.filter(f => f !== 'zip');
+    const zipRequested   = formats.includes('zip');
+    const regularFormats = formats.filter(f => f !== 'zip');
 
-    // Handle regular text-based formats
     for (const format of regularFormats) {
         const { content, ext } = renderFormat(format, result.files, result.stats, result.config);
         const outputPath = path.join(outputDir, `${fileName}.${ext}`);
-        fs.writeFileSync(outputPath, content);
+        await fsp.writeFile(outputPath, content);
         savedFiles.push({
             format,
             file:   outputPath,
@@ -622,7 +711,6 @@ async function saveContext(result, formats, fileName) {
         }
     }
 
-    // Handle zip format
     if (zipRequested) {
         const zipEntry = await saveAsZip(result, fileName);
         savedFiles.push(zipEntry);
@@ -703,9 +791,9 @@ async function promptMainMenu() {
 async function runNonInteractive(rawFlags) {
     loadDependencies();
 
-    const cli     = resolveFlags(rawFlags);
-    const config  = buildConfig(cli);
-    const formats = resolveFormats(cli.format);
+    const cli      = resolveFlags(rawFlags);
+    const config   = buildConfig(cli);
+    const formats  = resolveFormats(cli.format);
     const fileName = cli.name || 'context';
 
     if (!fs.existsSync(config.src)) {
@@ -713,7 +801,7 @@ async function runNonInteractive(rawFlags) {
         process.exit(1);
     }
 
-    const result = generateContext(config);
+    const result = await generateContext(config);
     if (!result) process.exit(1);
 
     printSummary(result.stats);
@@ -733,7 +821,7 @@ async function runInteractive() {
             case 'from-config': {
                 const config = loadConfig();
                 if (!config) { console.log(chalk.yellow('\n⚠️  No config file found.')); break; }
-                const result = generateContext(config);
+                const result = await generateContext(config);
                 if (!result) break;
                 printSummary(result.stats);
                 const formats = await promptFormat();
@@ -746,7 +834,7 @@ async function runInteractive() {
             case 'dynamic': {
                 const srcPath = await promptSrcPath();
                 const config  = { ...DEFAULT_CONFIG, src: srcPath };
-                const result  = generateContext(config);
+                const result  = await generateContext(config);
                 if (!result) break;
                 printSummary(result.stats);
                 const formats = await promptFormat();
