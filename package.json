@@ -4,7 +4,7 @@
   "description": "Generate markdown context files from your project code and chat with AI using Ollama",
   "main": "bin/mkctx.js",
   "bin": {
-    "mkctx": "./bin/mkctx.js"
+    "mkctx": "bin/mkctx.js"
   },
   "scripts": {
     "start": "node bin/mkctx.js",
