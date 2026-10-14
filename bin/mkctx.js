@@ -13,7 +13,8 @@ const { promises: fsp } = fs;
 // Node.js permite consumirlas desde CJS con `await import()`.
 // El proyecto sigue siendo CommonJS pero usa las versiones modernas.
 
-let inquirer, chalk, ora, archiver;
+let inquirer, chalk, ora;
+let archiverFactory = null;   // función/ctor listo para crear archivos
 
 async function loadCoreDeps() {
     if (chalk) return;
@@ -34,10 +35,49 @@ async function loadInquirer() {
     }
 }
 
+/**
+ * Carga archiver de forma compatible con la v7 (CJS, default export function)
+ * y la v8 (ESM-only, exports nombrados: create / ZipArchive / TarArchive).
+ */
 async function loadArchiver() {
-    if (archiver) return;
+    if (archiverFactory) return archiverFactory;
+
     const mod = await import('archiver');
-    archiver = mod.default;
+
+    // v7 CJS vía dynamic import → mod.default es la función
+    if (typeof mod.default === 'function') {
+        archiverFactory = (format, opts) => mod.default(format, opts);
+        return archiverFactory;
+    }
+
+    // v8: named export `create(format, opts)`
+    if (typeof mod.create === 'function') {
+        archiverFactory = (format, opts) => mod.create(format, opts);
+        return archiverFactory;
+    }
+
+    // v8: named export `archiver(format, opts)` (por si acaso)
+    if (typeof mod.archiver === 'function') {
+        archiverFactory = (format, opts) => mod.archiver(format, opts);
+        return archiverFactory;
+    }
+
+    // v8: clases ZipArchive / TarArchive
+    if (typeof mod.ZipArchive === 'function') {
+        archiverFactory = (format, opts) => {
+            if (format === 'zip') return new mod.ZipArchive(opts);
+            if (format === 'tar' && typeof mod.TarArchive === 'function') {
+                return new mod.TarArchive(opts);
+            }
+            throw new Error(`Unsupported archive format: ${format}`);
+        };
+        return archiverFactory;
+    }
+
+    throw new Error(
+        'Unsupported archiver API. Tried: default, create, archiver, ZipArchive. ' +
+        'Check the installed archiver version (package.json).'
+    );
 }
 
 // ============================================
@@ -652,7 +692,7 @@ async function printSummary(stats) {
 // ============================================
 
 async function saveAsZip(result, fileName) {
-    await loadArchiver();
+    const createArchive = await loadArchiver();
     await loadCoreDeps();
 
     const outputDir = result.config.output || './mkctx';
@@ -660,7 +700,9 @@ async function saveAsZip(result, fileName) {
 
     const zipPath = path.join(outputDir, `${fileName}.zip`);
     const output  = fs.createWriteStream(zipPath);
-    const archive = archiver('zip', { zlib: { level: 9 } });
+
+    // La firma de la instancia es igual en v7 y v8 (stream con .pipe/.append/.finalize)
+    const archive = createArchive('zip', { zlib: { level: 9 } });
 
     return new Promise((resolve, reject) => {
         output.on('close', () => {
@@ -947,7 +989,7 @@ function showVersion() {
         console.log(`mkctx v${pkg.version}`);
     } catch (err) {
         if (process.env.DEBUG) console.error(err);
-        console.log('mkctx v6.0.3');
+        console.log('mkctx v6.0.5');
     }
 }
 
