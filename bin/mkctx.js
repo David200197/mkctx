@@ -7,25 +7,37 @@ const path = require('path');
 const { promises: fsp } = fs;
 
 // ============================================
-// LAZY-LOADED DEPENDENCIES
+// LAZY-LOADED DEPENDENCIES (ESM-only via dynamic import)
 // ============================================
+// chalk 5+, ora 6+, inquirer 9+ y archiver 8+ son ESM-only.
+// Node.js permite consumirlas desde CJS con `await import()`.
+// El proyecto sigue siendo CommonJS pero usa las versiones modernas.
 
 let inquirer, chalk, ora, archiver;
 
-function loadCoreDeps() {
+async function loadCoreDeps() {
     if (chalk) return;
-    chalk = require('chalk');
-    ora   = require('ora');
+    const [chalkMod, oraMod] = await Promise.all([
+        import('chalk'),
+        import('ora'),
+    ]);
+    chalk = chalkMod.default;
+    ora   = oraMod.default;
 }
 
-function loadInquirer() {
+async function loadInquirer() {
     if (inquirer) return;
-    inquirer = require('inquirer');
+    const mod = await import('inquirer');
+    inquirer = mod.default;
+    if (!inquirer.Separator && mod.Separator) {
+        inquirer.Separator = mod.Separator;
+    }
 }
 
-function loadArchiver() {
+async function loadArchiver() {
     if (archiver) return;
-    archiver = require('archiver');
+    const mod = await import('archiver');
+    archiver = mod.default;
 }
 
 // ============================================
@@ -203,20 +215,20 @@ function configFileExists() {
     return fs.existsSync(CONFIG_FILE);
 }
 
-function loadConfig() {
+async function loadConfig() {
     if (!configFileExists()) return null;
     try {
         const raw = JSON.parse(fs.readFileSync(CONFIG_FILE, 'utf-8'));
         return { ...DEFAULT_CONFIG, ...raw };
     } catch {
-        loadCoreDeps();
+        await loadCoreDeps();
         console.log(chalk.yellow('⚠️  Error parsing config file, using defaults'));
         return { ...DEFAULT_CONFIG };
     }
 }
 
-function buildConfig(cliFlags = {}) {
-    const base = configFileExists() ? loadConfig() : { ...DEFAULT_CONFIG };
+async function buildConfig(cliFlags = {}) {
+    const base = configFileExists() ? await loadConfig() : { ...DEFAULT_CONFIG };
     if (cliFlags.src)          base.src           = cliFlags.src;
     if (cliFlags.output)       base.output        = cliFlags.output;
     if (cliFlags.ignore)       base.ignore        = cliFlags.ignore;
@@ -226,8 +238,8 @@ function buildConfig(cliFlags = {}) {
     return base;
 }
 
-function createConfigFile() {
-    loadCoreDeps();
+async function createConfigFile() {
+    await loadCoreDeps();
     fs.mkdirSync('mkctx', { recursive: true });
     fs.writeFileSync(CONFIG_FILE, JSON.stringify(DEFAULT_CONFIG, null, 2));
     appendToGitignore();
@@ -608,7 +620,7 @@ function renderFormat(format, files, stats, config) {
 // ============================================
 
 async function generateContext(config) {
-    loadCoreDeps();
+    await loadCoreDeps();
     const spinner = ora(`Scanning ${config.src}...`).start();
 
     if (!fs.existsSync(config.src)) {
@@ -627,8 +639,8 @@ async function generateContext(config) {
     return { files, stats, config };
 }
 
-function printSummary(stats) {
-    loadCoreDeps();
+async function printSummary(stats) {
+    await loadCoreDeps();
     console.log(chalk.cyan('\n📊 Context Summary:'));
     console.log(chalk.white(`   Files: ${stats.files}`));
     console.log(chalk.white(`   Lines: ${stats.totalLines.toLocaleString()}`));
@@ -640,8 +652,8 @@ function printSummary(stats) {
 // ============================================
 
 async function saveAsZip(result, fileName) {
-    loadArchiver();
-    loadCoreDeps();
+    await loadArchiver();
+    await loadCoreDeps();
 
     const outputDir = result.config.output || './mkctx';
     fs.mkdirSync(outputDir, { recursive: true });
@@ -680,10 +692,10 @@ async function saveAsZip(result, fileName) {
 // ============================================
 
 async function saveContext(result, formats, fileName) {
-    loadCoreDeps();
+    await loadCoreDeps();
 
     if (!fileName) {
-        loadInquirer();
+        await loadInquirer();
         const answer = await inquirer.prompt([{
             type: 'input', name: 'fileName',
             message: 'Enter a name for the output files:',
@@ -733,7 +745,7 @@ async function saveContext(result, formats, fileName) {
 // ============================================
 
 async function promptSrcPath() {
-    loadInquirer();
+    await loadInquirer();
     const { srcPath } = await inquirer.prompt([{
         type: 'input', name: 'srcPath',
         message: 'Enter the source path to analyze:',
@@ -744,8 +756,8 @@ async function promptSrcPath() {
 }
 
 async function promptFormat() {
-    loadInquirer();
-    loadCoreDeps();
+    await loadInquirer();
+    await loadCoreDeps();
     const { format } = await inquirer.prompt([{
         type: 'list', name: 'format',
         message: 'Select output format:',
@@ -764,8 +776,8 @@ async function promptFormat() {
 }
 
 async function promptMainMenu() {
-    loadInquirer();
-    loadCoreDeps();
+    await loadInquirer();
+    await loadCoreDeps();
 
     const hasConfig = configFileExists();
 
@@ -804,10 +816,10 @@ async function promptMainMenu() {
 // ============================================
 
 async function runNonInteractive(rawFlags) {
-    loadCoreDeps();
+    await loadCoreDeps();
 
     const cli      = resolveFlags(rawFlags);
-    const config   = buildConfig(cli);
+    const config   = await buildConfig(cli);
     const formats  = resolveFormats(cli.format);
     const fileName = cli.name || 'context';
 
@@ -819,14 +831,14 @@ async function runNonInteractive(rawFlags) {
     const result = await generateContext(config);
     if (!result) process.exit(1);
 
-    printSummary(result.stats);
+    await printSummary(result.stats);
     await saveContext(result, formats, fileName);
     console.log(chalk.yellow('👋 Done!\n'));
 }
 
 async function runInteractive() {
-    loadCoreDeps();
-    loadInquirer();
+    await loadCoreDeps();
+    await loadInquirer();
 
     let running = true;
 
@@ -835,11 +847,11 @@ async function runInteractive() {
 
         switch (action) {
             case 'from-config': {
-                const config = loadConfig();
+                const config = await loadConfig();
                 if (!config) { console.log(chalk.yellow('\n⚠️  No config file found.')); break; }
                 const result = await generateContext(config);
                 if (!result) break;
-                printSummary(result.stats);
+                await printSummary(result.stats);
                 const formats = await promptFormat();
                 await saveContext(result, formats);
                 console.log(chalk.yellow('👋 Done!\n'));
@@ -852,7 +864,7 @@ async function runInteractive() {
                 const config  = { ...DEFAULT_CONFIG, src: srcPath };
                 const result  = await generateContext(config);
                 if (!result) break;
-                printSummary(result.stats);
+                await printSummary(result.stats);
                 const formats = await promptFormat();
                 await saveContext(result, formats);
                 console.log(chalk.yellow('👋 Done!\n'));
@@ -863,10 +875,10 @@ async function runInteractive() {
             case 'config':
                 if (configFileExists()) {
                     console.log(chalk.cyan('\n📄 Current configuration:\n'));
-                    console.log(JSON.stringify(loadConfig(), null, 2));
+                    console.log(JSON.stringify(await loadConfig(), null, 2));
                     console.log(chalk.gray(`\n   Edit ${CONFIG_FILE} to modify settings.\n`));
                 } else {
-                    createConfigFile();
+                    await createConfigFile();
                 }
                 break;
 
@@ -882,8 +894,8 @@ async function runInteractive() {
 // HELP & VERSION
 // ============================================
 
-function showHelp() {
-    loadCoreDeps();
+async function showHelp() {
+    await loadCoreDeps();
     console.log(chalk.cyan(`
 ╔════════════════════════════════════════════════════════════╗
 ║  📄 mkctx - Make Context for AI Code Analysis              ║
@@ -927,12 +939,15 @@ function showHelp() {
 `));
 }
 
+// FIX: resuelve el package.json con ruta absoluta (__dirname) en vez de require('./package.json')
 function showVersion() {
     try {
-        const pkg = require('./package.json');
+        const pkgPath = path.join(__dirname, '..', 'package.json');
+        const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf-8'));
         console.log(`mkctx v${pkg.version}`);
-    } catch {
-        console.log('mkctx v4.0.0');
+    } catch (err) {
+        if (process.env.DEBUG) console.error(err);
+        console.log('mkctx v6.0.3');
     }
 }
 
@@ -943,9 +958,9 @@ function showVersion() {
 async function main() {
     const { command, flags } = parseArgs(process.argv);
 
-    if (flags.help || flags.h || command === 'help')       return showHelp();
-    if (flags.version || flags.v || command === 'version') return showVersion();
-    if (command === 'config') { loadCoreDeps(); return createConfigFile(); }
+    if (flags.help || flags.h || command === 'help')       { await showHelp();          return; }
+    if (flags.version || flags.v || command === 'version') { showVersion();            return; }
+    if (command === 'config')                              { await createConfigFile(); return; }
 
     if (isNonInteractiveMode(flags)) {
         await runNonInteractive(flags);
