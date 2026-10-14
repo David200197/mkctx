@@ -12,11 +12,15 @@ const { promises: fsp } = fs;
 
 let inquirer, chalk, ora, archiver;
 
-function loadDependencies() {
+function loadCoreDeps() {
+    if (chalk) return;
+    chalk = require('chalk');
+    ora   = require('ora');
+}
+
+function loadInquirer() {
     if (inquirer) return;
     inquirer = require('inquirer');
-    chalk    = require('chalk');
-    ora      = require('ora');
 }
 
 function loadArchiver() {
@@ -205,6 +209,7 @@ function loadConfig() {
         const raw = JSON.parse(fs.readFileSync(CONFIG_FILE, 'utf-8'));
         return { ...DEFAULT_CONFIG, ...raw };
     } catch {
+        loadCoreDeps();
         console.log(chalk.yellow('⚠️  Error parsing config file, using defaults'));
         return { ...DEFAULT_CONFIG };
     }
@@ -222,7 +227,7 @@ function buildConfig(cliFlags = {}) {
 }
 
 function createConfigFile() {
-    loadDependencies();
+    loadCoreDeps();
     fs.mkdirSync('mkctx', { recursive: true });
     fs.writeFileSync(CONFIG_FILE, JSON.stringify(DEFAULT_CONFIG, null, 2));
     appendToGitignore();
@@ -603,6 +608,7 @@ function renderFormat(format, files, stats, config) {
 // ============================================
 
 async function generateContext(config) {
+    loadCoreDeps();
     const spinner = ora(`Scanning ${config.src}...`).start();
 
     if (!fs.existsSync(config.src)) {
@@ -622,6 +628,7 @@ async function generateContext(config) {
 }
 
 function printSummary(stats) {
+    loadCoreDeps();
     console.log(chalk.cyan('\n📊 Context Summary:'));
     console.log(chalk.white(`   Files: ${stats.files}`));
     console.log(chalk.white(`   Lines: ${stats.totalLines.toLocaleString()}`));
@@ -634,6 +641,7 @@ function printSummary(stats) {
 
 async function saveAsZip(result, fileName) {
     loadArchiver();
+    loadCoreDeps();
 
     const outputDir = result.config.output || './mkctx';
     fs.mkdirSync(outputDir, { recursive: true });
@@ -672,9 +680,10 @@ async function saveAsZip(result, fileName) {
 // ============================================
 
 async function saveContext(result, formats, fileName) {
-    loadDependencies();
+    loadCoreDeps();
 
     if (!fileName) {
+        loadInquirer();
         const answer = await inquirer.prompt([{
             type: 'input', name: 'fileName',
             message: 'Enter a name for the output files:',
@@ -724,6 +733,7 @@ async function saveContext(result, formats, fileName) {
 // ============================================
 
 async function promptSrcPath() {
+    loadInquirer();
     const { srcPath } = await inquirer.prompt([{
         type: 'input', name: 'srcPath',
         message: 'Enter the source path to analyze:',
@@ -734,6 +744,8 @@ async function promptSrcPath() {
 }
 
 async function promptFormat() {
+    loadInquirer();
+    loadCoreDeps();
     const { format } = await inquirer.prompt([{
         type: 'list', name: 'format',
         message: 'Select output format:',
@@ -752,6 +764,9 @@ async function promptFormat() {
 }
 
 async function promptMainMenu() {
+    loadInquirer();
+    loadCoreDeps();
+
     const hasConfig = configFileExists();
 
     console.log(chalk.cyan('\n╔════════════════════════════════════════╗'));
@@ -789,7 +804,7 @@ async function promptMainMenu() {
 // ============================================
 
 async function runNonInteractive(rawFlags) {
-    loadDependencies();
+    loadCoreDeps();
 
     const cli      = resolveFlags(rawFlags);
     const config   = buildConfig(cli);
@@ -810,7 +825,8 @@ async function runNonInteractive(rawFlags) {
 }
 
 async function runInteractive() {
-    loadDependencies();
+    loadCoreDeps();
+    loadInquirer();
 
     let running = true;
 
@@ -867,7 +883,7 @@ async function runInteractive() {
 // ============================================
 
 function showHelp() {
-    loadDependencies();
+    loadCoreDeps();
     console.log(chalk.cyan(`
 ╔════════════════════════════════════════════════════════════╗
 ║  📄 mkctx - Make Context for AI Code Analysis              ║
@@ -929,7 +945,7 @@ async function main() {
 
     if (flags.help || flags.h || command === 'help')       return showHelp();
     if (flags.version || flags.v || command === 'version') return showVersion();
-    if (command === 'config') { loadDependencies(); return createConfigFile(); }
+    if (command === 'config') { loadCoreDeps(); return createConfigFile(); }
 
     if (isNonInteractiveMode(flags)) {
         await runNonInteractive(flags);
